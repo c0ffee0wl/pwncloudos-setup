@@ -1,6 +1,6 @@
 # pwncloudos-sync
 
-A standalone tool that performs in-place upgrades of all security tools installed on [PwnCloudOS](https://pwncloudos.pwnedlabs.io/) without requiring users to download fresh OS images.
+A standalone tool that performs in-place upgrades of all security tools installed on [PwnCloudOS](https://pwnedlabs.io/pwncloudos) without requiring users to download fresh OS images.
 
 <img width="2344" height="866" alt="image" src="https://github.com/user-attachments/assets/549d6293-77d8-4f25-a9e1-cb1f6443a0c6" />
 
@@ -156,7 +156,7 @@ Contributions are welcome!
 
 ## Contributors
 
-All contributors are acknowledged on the [PwnCloudOS website](https://pwncloudos.pwnedlabs.io/) and in the repository README.
+All contributors are acknowledged on the [PwnCloudOS website](https://pwnedlabs.io/pwncloudos) and in the repository README.
 
 ## License
 
@@ -164,11 +164,11 @@ MIT License — see [LICENSE](LICENSE) for details.
 
 ## Credits
 
-- [PwnCloudOS](https://pwncloudos.pwnedlabs.io/) by [PwnedLabs](https://pwnedlabs.io/)
+- [PwnCloudOS](https://pwnedlabs.io/pwncloudos) by [Pwned Labs](https://pwnedlabs.io/)
 - All the amazing security tool authors
 
 ## Links
 
-- [PwnCloudOS Download](https://pwncloudos.pwnedlabs.io/)
+- [PwnCloudOS Download](https://pwnedlabs.io/pwncloudos)
 - [PwnCloudOS Documentation](https://pwncloudos.readthedocs.io/)
 - [GitHub Repository](https://github.com/pwnedlabs/pwncloudos-sync)
