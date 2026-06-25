@@ -248,6 +248,8 @@ def get_updater_for_tool(tool: Tool, config, for_install: bool = False):
     Args:
         tool: Tool object
         config: Configuration object
+        for_install: When True, route git/git_python by install_method regardless of .git presence
+            (for fresh installs). Defaults to False.
 
     Returns:
         Updater instance

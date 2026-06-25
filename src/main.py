@@ -110,7 +110,7 @@ def main() -> int:
 
     # Install mode: provision tools from scratch
     if config.install_mode:
-        return run_install(tools_to_update, config, logger)
+        return run_install(tools_to_update, config)
 
     # Handle --check: Check for updates without installing
     if config.check_only:
@@ -313,7 +313,7 @@ def install_tool(tool, config, logger):
         return UpdateResult(success=False, tool_name=tool.name, error_message=str(e))
 
 
-def run_install(tools, config, logger) -> int:
+def run_install(tools, config) -> int:
     """Install all selected tools, with one retry pass for failures."""
     from .logger import SyncLogger
     from .cli import Colors
