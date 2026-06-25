@@ -27,7 +27,15 @@ Examples:
   pwncloudos-sync --category aws      # Update only AWS tools
   pwncloudos-sync --tool cloudfox     # Update specific tool
   pwncloudos-sync --dry-run           # Show what would be updated
+  pwncloudos-sync install             # Install all tools from scratch
+  pwncloudos-sync install --category aws  # Install only AWS tools
         """
+    )
+
+    parser.add_argument(
+        'command', nargs='?', choices=['install'], default=None,
+        help="Action to run. 'install' provisions tools from scratch "
+             "(default with no command: check + offer updates).",
     )
 
     # Update scope

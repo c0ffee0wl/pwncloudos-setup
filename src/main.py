@@ -38,6 +38,7 @@ def main() -> int:
     has_action = (
         config.update_all or config.category or config.tools
         or config.list_only or config.check_only or config.dry_run
+        or config.install_mode
     )
     default_mode = not has_action
 
@@ -106,6 +107,10 @@ def main() -> int:
         print(f"\n{Colors.GREEN}All pre-flight checks passed!{Colors.END}")
 
     logger.info(f"Found {len(tools_to_update)} tools to check for updates")
+
+    # Install mode: provision tools from scratch
+    if config.install_mode:
+        return run_install(tools_to_update, config, logger)
 
     # Handle --check: Check for updates without installing
     if config.check_only:
@@ -261,6 +266,87 @@ def update_tool(tool, config, rollback_engine, state_manager, logger, skip_needs
             tool_name=tool.name,
             error_message=str(e)
         )
+
+
+def install_tool(tool, config, logger):
+    """Install a single tool from scratch."""
+    from .tools.registry import get_updater_for_tool
+    from .core.arch import detect_architecture
+    from .updaters.base import UpdateResult
+
+    logger.tool_start(tool.name)
+    try:
+        current_arch = detect_architecture()
+        if tool.arch_support and current_arch not in tool.arch_support:
+            reason = f"Unsupported on {current_arch}"
+            logger.tool_skip(tool.name, reason)
+            return UpdateResult(success=True, tool_name=tool.name,
+                                skipped=True, skip_reason=reason)
+
+        updater = get_updater_for_tool(tool, config, for_install=True)
+
+        if not config.force and updater.is_installed():
+            logger.tool_skip(tool.name, "Already installed")
+            return UpdateResult(success=True, tool_name=tool.name,
+                                skipped=True, skip_reason="Already installed")
+
+        if config.dry_run:
+            logger.tool_skip(tool.name, "Dry run - would install")
+            return UpdateResult(success=True, tool_name=tool.name,
+                                skipped=True, skip_reason="Dry run")
+
+        result = updater.perform_install()
+
+        if result.skipped:
+            logger.tool_skip(tool.name, result.skip_reason or "Skipped")
+        elif result.success:
+            # Verification is best-effort on a fresh install; never fail on it.
+            updater.verify_update()
+            logger.tool_success(tool.name, result.old_version or "—",
+                                result.new_version or "installed")
+        else:
+            logger.tool_fail(tool.name, result.error_message)
+        return result
+
+    except Exception as e:
+        logger.tool_fail(tool.name, str(e))
+        return UpdateResult(success=False, tool_name=tool.name, error_message=str(e))
+
+
+def run_install(tools, config, logger) -> int:
+    """Install all selected tools, with one retry pass for failures."""
+    from .logger import SyncLogger
+    from .cli import Colors
+
+    sync_logger = SyncLogger(config.log_file, config.verbose)
+
+    print(f"\n{Colors.BOLD}{Colors.CYAN}Installing tools...{Colors.END}\n")
+
+    results = []
+    for i, tool in enumerate(tools, 1):
+        print(f"[{i}/{len(tools)}] ", end='')
+        results.append(install_tool(tool, config, sync_logger))
+
+    failed = [(i, r) for i, r in enumerate(results) if not r.success and not r.skipped]
+    if failed:
+        failed_tools = [tools[i] for i, _ in failed]
+        names = ', '.join(r.tool_name for _, r in failed)
+        print(f"\n{Colors.YELLOW}⟳ Retrying {len(failed)} failed tool(s): {names}{Colors.END}\n")
+        for j, tool in enumerate(failed_tools, 1):
+            print(f"[retry {j}/{len(failed_tools)}] ", end='')
+            retry = install_tool(tool, config, sync_logger)
+            for idx, r in failed:
+                if r.tool_name == tool.name:
+                    results[idx] = retry
+                    break
+
+    sync_logger.summary(results)
+
+    success_count = sum(1 for r in results if r.success and not r.skipped)
+    failed_count = sum(1 for r in results if not r.success and not r.skipped)
+    if failed_count == 0:
+        return 0
+    return 1 if success_count > 0 else 2
 
 
 def check_updates_only(tools, config, logger):

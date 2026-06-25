@@ -35,6 +35,7 @@ class Config:
     # Information
     list_only: bool = False
     check_only: bool = False
+    install_mode: bool = False
 
     # Directories
     state_dir: Path = field(default_factory=lambda: Path("state/"))
@@ -128,3 +129,6 @@ def apply_cli_args(config: Config, args):
         config.list_only = args.list_only
     if hasattr(args, 'check_only'):
         config.check_only = args.check_only
+
+    if hasattr(args, 'command') and args.command == 'install':
+        config.install_mode = True
