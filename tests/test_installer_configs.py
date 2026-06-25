@@ -71,6 +71,73 @@ def test_launcher_dest_map_parses_exec(tmp_path):
     assert m["pmapper_launcher.sh"] == "/opt/aws_tools/pmapper/pmapper_launcher.sh"
 
 
+def test_launcher_dest_map_all_exec_forms(tmp_path):
+    """All 7 Exec= forms from real PwnCloudOS .desktop files must parse correctly."""
+    repo = tmp_path / "repo"
+    custom = repo / "docs/configs/launchers/custom"
+    custom.mkdir(parents=True)
+
+    cases = [
+        # 1. Absolute path inside single-quoted zsh -i -c '...'
+        (
+            "form1.desktop",
+            "Exec=xfce4-terminal --hold --command \"zsh -i -c '/opt/aws_tools/pmapper/pmapper_launcher.sh; exec zsh'\"\n",
+            "pmapper_launcher.sh",
+            "/opt/aws_tools/pmapper/pmapper_launcher.sh",
+        ),
+        # 2. bash -c 'cd /opt/dir && ./script'
+        (
+            "form2.desktop",
+            "Exec=xfce4-terminal --hold --command \"bash -c 'cd /opt/azure_tools/bloodhound && ./BloodHound_Launcher.sh; exec bash'\"\n",
+            "BloodHound_Launcher.sh",
+            "/opt/azure_tools/bloodhound/BloodHound_Launcher.sh",
+        ),
+        # 3. cd /opt/dir && /usr/bin/zsh ./script
+        (
+            "form3.desktop",
+            "Exec=xfce4-terminal --hold --command \"zsh -i -c 'cd /opt/multi_cloud_tools/s3scanner && /usr/bin/zsh ./s3scanner_launcher.sh; exec zsh'\"\n",
+            "s3scanner_launcher.sh",
+            "/opt/multi_cloud_tools/s3scanner/s3scanner_launcher.sh",
+        ),
+        # 4. --working-directory=/opt/dir (unquoted) + --command="./script"
+        (
+            "form4.desktop",
+            "Exec=xfce4-terminal --working-directory=/opt/gcp_tools/username-anarchy --hold --command=\"./username-anarchy_launcher.sh\"\n",
+            "username-anarchy_launcher.sh",
+            "/opt/gcp_tools/username-anarchy/username-anarchy_launcher.sh",
+        ),
+        # 5. --working-directory="/opt/dir" (quoted) + ./script inside command
+        (
+            "form5.desktop",
+            "Exec=xfce4-terminal --hold --working-directory=\"/opt/aws_tools/AWeSomeUserFinder\" --command \"zsh -i -c './awesome_userfinder_launcher.sh; exec zsh'\"\n",
+            "awesome_userfinder_launcher.sh",
+            "/opt/aws_tools/AWeSomeUserFinder/awesome_userfinder_launcher.sh",
+        ),
+        # 6. Absolute path directly in --command "..." (no shell wrapper)
+        (
+            "form6.desktop",
+            "Exec=xfce4-terminal --hold --command \"/opt/ps_tools/GraphRunner/run_graph_runner.sh\"\n",
+            "run_graph_runner.sh",
+            "/opt/ps_tools/GraphRunner/run_graph_runner.sh",
+        ),
+        # 7. Same as 6, different path
+        (
+            "form7.desktop",
+            "Exec=xfce4-terminal --hold --command \"/opt/ps_tools/invoke_modules/run_mfasweep.sh\"\n",
+            "run_mfasweep.sh",
+            "/opt/ps_tools/invoke_modules/run_mfasweep.sh",
+        ),
+    ]
+
+    for filename, content, _basename, _dest in cases:
+        (custom / filename).write_text(content)
+
+    m = cfg._launcher_dest_map(repo)
+
+    for _filename, _content, basename, dest in cases:
+        assert m.get(basename) == dest, f"{basename!r}: expected {dest!r}, got {m.get(basename)!r}"
+
+
 def test_install_launchers_places_mapped_only(tmp_path, monkeypatch):
     repo = _make_repo(tmp_path)
     written = {}

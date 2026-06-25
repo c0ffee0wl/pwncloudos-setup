@@ -104,26 +104,53 @@ def install_powershell_profiles(repo_dir, home: Optional[Path] = None) -> List[s
 
 
 def _launcher_dest_map(repo_dir) -> Dict[str, str]:
-    """Map launcher basename -> /opt destination, parsed from custom .desktop Exec lines."""
+    """Map launcher basename -> /opt destination, parsed from custom .desktop Exec lines.
+
+    Algorithm (applied to each Exec= line):
+    1. If the line contains an absolute /opt/.../foo.sh path, use it directly.
+    2. Otherwise, locate a working directory from --working-directory[=]"?(/opt/...)
+       or cd /opt/... in the command, then combine with a relative ./foo.sh script.
+    """
     dest_map: Dict[str, str] = {}
     custom = Path(repo_dir) / "docs" / "configs" / "launchers" / "custom"
     if not custom.is_dir():
         return dest_map
-    # Direct absolute path form: '/opt/<cat>/<tool>/<name>_launcher.sh'
-    abs_re = re.compile(r"(/opt/\S+?_[Ll]auncher\.sh)")
-    # cd-into form: cd /opt/<dir> && ./<name>_Launcher.sh
-    cd_re = re.compile(r"cd\s+(/opt/\S+?)\s+&&\s+\./(\S+?_[Ll]auncher\.sh)")
+
+    # Rule 1: bare absolute /opt/…/foo.sh anywhere on the line
+    abs_re = re.compile(r"(/opt/[^\s\"';]+\.sh)")
+
+    # Rule 2a: --working-directory="…" or --working-directory=…  (with optional space instead of =)
+    wdir_re = re.compile(r'--working-directory[= ]"?(/opt/[^\s"\'&]+)"?')
+
+    # Rule 2b: cd /opt/…  (stop at whitespace, quotes, semicolons, ampersands)
+    cd_re = re.compile(r"cd\s+(/opt/[^\s\"';&#]+)")
+
+    # Rule 2c: relative script  ./foo.sh  (optionally preceded by /usr/bin/zsh or similar)
+    rel_re = re.compile(r"\./([^\s\"';]+\.sh)")
+
     for desktop in custom.glob("*.desktop"):
         for line in desktop.read_text(errors="ignore").splitlines():
             if not line.startswith("Exec="):
                 continue
-            for m in abs_re.finditer(line):
-                p = m.group(1)
-                dest_map[Path(p).name] = p
-            m2 = cd_re.search(line)
-            if m2:
-                fname = m2.group(2)
-                dest_map[fname] = f"{m2.group(1)}/{fname}"
+
+            # Rule 1: any absolute /opt/…/.sh takes priority
+            abs_matches = abs_re.findall(line)
+            if abs_matches:
+                for p in abs_matches:
+                    dest_map[Path(p).name] = p
+                continue
+
+            # Rule 2: working-directory + relative script
+            wdir_m = wdir_re.search(line)
+            cd_m = cd_re.search(line)
+            working_dir = (wdir_m or cd_m)
+            if working_dir:
+                directory = working_dir.group(1).rstrip("/")
+                rel_m = rel_re.search(line)
+                if rel_m:
+                    fname = rel_m.group(1)
+                    dest_map[fname] = f"{directory}/{fname}"
+
     return dest_map
 
 
