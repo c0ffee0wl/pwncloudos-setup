@@ -343,7 +343,8 @@ class GitUpdater(BaseUpdater):
         Returns:
             UpdateResult with success status and version/error message
         """
-        clone_cmd = ['git', 'clone', '--depth', '1', self.tool.github_repo, str(self.tool.path)]
+        repo_url = f"https://github.com/{self.tool.github_repo}.git"
+        clone_cmd = ['git', 'clone', '--depth', '1', repo_url, str(self.tool.path)]
         if self._needs_sudo_for_parent(Path(self.tool.path)):
             clone_cmd = ['sudo'] + clone_cmd
 

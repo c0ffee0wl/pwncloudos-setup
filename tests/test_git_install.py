@@ -6,20 +6,12 @@ from unittest.mock import patch, MagicMock
 import pytest
 
 from src.updaters.git_updater import GitUpdater
-
-
-class FakeCompleted:
-    """Stand-in for subprocess.CompletedProcess in tests."""
-
-    def __init__(self, returncode=0, stdout="", stderr=""):
-        self.returncode = returncode
-        self.stdout = stdout
-        self.stderr = stderr
+from conftest import FakeCompleted
 
 
 # ── helpers ──────────────────────────────────────────────────────────────────
 
-def make_updater(tool_factory, config, path="/opt/tools/mytool", github_repo="https://github.com/org/mytool"):
+def make_updater(tool_factory, config, path="/opt/tools/mytool", github_repo="owner/repo"):
     tool = tool_factory(
         name="mytool",
         install_method="git",
@@ -69,10 +61,11 @@ class TestGitClone:
         assert result.success is True
         assert result.tool_name == "mytool"
         assert result.new_version == "abc1234"
-        # Confirm sudo NOT prepended
+        # Confirm sudo NOT prepended and full GitHub URL is used
         called_cmd = mock_run.call_args[0][0]
         assert called_cmd[0] != "sudo"
         assert "clone" in called_cmd
+        assert "https://github.com/owner/repo.git" in called_cmd
 
     def test_clone_prepends_sudo_for_opt(self, tool_factory, config):
         """Clone into /opt path prepends sudo."""
