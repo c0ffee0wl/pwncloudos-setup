@@ -66,11 +66,12 @@ class AptUpdater(BaseUpdater):
 
     def perform_install(self) -> UpdateResult:
         """Install the apt package from scratch (not --only-upgrade)."""
-        if self.get_current_version():
+        current = self.get_current_version()
+        if current:
             return UpdateResult(
                 success=True,
                 tool_name=self.tool.name,
-                new_version=self.get_current_version(),
+                new_version=current,
                 skipped=True,
                 skip_reason="Already installed",
             )

@@ -16,6 +16,7 @@ def test_apt_install_runs_plain_install(config, tool_factory, monkeypatch):
     result = updater.perform_install()
 
     assert result.success is True
+    assert result.skipped is False
     install_cmd = next(c for c in calls if "install" in c)
     assert install_cmd == ["sudo", "apt-get", "install", "-y", "hashcat"]
     assert "--only-upgrade" not in install_cmd
