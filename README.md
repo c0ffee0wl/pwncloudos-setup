@@ -33,8 +33,11 @@ python3 -m src.main
 Use `./pwncloudos-setup` (at the repo root) to provision a fresh Kali, Ubuntu, or Debian host from scratch. It handles all prerequisites, creates the `/opt/<category>` directory tree, installs Python dependencies, and then runs `python3 -m src.main install` to clone and configure every tool in the manifest.
 
 ```bash
-# Clone the repo, then run the bootstrapper (prompts for sudo as needed)
-git clone https://github.com/pwnedlabs/pwncloudos-sync /opt/pwncloudos-sync
+# Clone the repo into /opt (needs sudo), then take ownership as your user
+sudo git clone https://github.com/pwnedlabs/pwncloudos-sync /opt/pwncloudos-sync
+sudo chown -R "$USER":"$USER" /opt/pwncloudos-sync
+
+# Run the bootstrapper (prompts for sudo as needed)
 cd /opt/pwncloudos-sync
 ./pwncloudos-setup
 
