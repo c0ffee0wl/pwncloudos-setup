@@ -175,7 +175,11 @@ class PipxUpdater(BaseUpdater):
                     ),
                 )
 
-            command = ['pipx', 'upgrade', package_to_manage] if package_name else ['pipx', 'install', package_to_manage]
+            if package_name:
+                command = ['pipx', 'upgrade', package_to_manage]
+            else:
+                install_target = self.tool.pipx_source or self.tool.pypi_name or self.tool.name
+                command = ['pipx', 'install', install_target]
             result = subprocess.run(
                 command,
                 capture_output=True, text=True, timeout=600

@@ -30,6 +30,7 @@ class Tool:
     docker_compose: Optional[str] = None
     docker_image: Optional[str] = None
     ps_module_manifest: Optional[str] = None  # e.g. "AADInternals.psd1" for PowerShell tools
+    pipx_source: Optional[str] = None  # git URL or other non-PyPI source for pipx install
     enabled: bool = True
 
 
@@ -77,6 +78,7 @@ def _load_from_manifest(path: Path) -> List[Tool]:
             docker_compose=tool_data.get('docker_compose'),
             docker_image=tool_data.get('docker_image'),
             ps_module_manifest=tool_data.get('ps_module_manifest'),
+            pipx_source=tool_data.get('pipx_source'),
             enabled=tool_data.get('enabled', True),
         )
         tools.append(tool)

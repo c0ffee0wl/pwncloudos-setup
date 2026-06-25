@@ -85,7 +85,9 @@ install_base_packages() {
     run sudo apt-get install -y \
         git curl ca-certificates jq \
         python3 python3-pip python3-venv pipx \
-        build-essential libssl-dev pkg-config
+        build-essential libssl-dev pkg-config \
+        golang-go \
+        python3-dev libffi-dev
 }
 
 install_uv() {
@@ -160,12 +162,11 @@ done
 
 # ---- this repo's Python deps (global env, matches upstream) ----
 log "Installing pwncloudos-sync Python dependencies..."
-if command -v uv >/dev/null 2>&1; then
-    run uv pip install --system --break-system-packages -r "$SCRIPT_DIR/requirements.txt" \
+if UV_BIN="$(command -v uv 2>/dev/null)"; then
+    run sudo "$UV_BIN" pip install --system --break-system-packages -r "$SCRIPT_DIR/requirements.txt" \
         || run sudo python3 -m pip install -r "$SCRIPT_DIR/requirements.txt" --break-system-packages
 else
-    run python3 -m pip install -r "$SCRIPT_DIR/requirements.txt" --break-system-packages \
-        || run sudo python3 -m pip install -r "$SCRIPT_DIR/requirements.txt" --break-system-packages
+    run sudo python3 -m pip install -r "$SCRIPT_DIR/requirements.txt" --break-system-packages
 fi
 
 # ---- hand off to the Python installer ----

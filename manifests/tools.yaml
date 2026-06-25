@@ -41,9 +41,10 @@ tools:
 
   - name: aws-enumerator
     category: aws
-    install_method: binary
-    path: /opt/aws_tools/aws_enumerator/aws-enumerator
+    install_method: custom
+    path: ~/go/bin/aws-enumerator
     github_repo: shabarkin/aws-enumerator
+    custom_handler: install_aws_enumerator.sh
     arch_support: [amd64, arm64]
 
   - name: github-oidc-checker
@@ -58,6 +59,7 @@ tools:
     install_method: pipx
     path: ~/.local/bin/iamgraph
     pypi_name: iamgraph
+    pipx_source: "git+https://github.com/WithSecureLabs/IAMGraph"
     github_repo: WithSecureLabs/IAMGraph
     version_command: "iamgraph --version"
     arch_support: [amd64, arm64]

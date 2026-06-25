@@ -13,6 +13,7 @@ from typing import Optional
 import requests
 from .base import BaseUpdater, UpdateResult
 from ..core.safeguards import safe_write
+from ..core.github import auth_headers
 
 
 class FileReplacementUpdater(BaseUpdater):
@@ -57,7 +58,7 @@ class FileReplacementUpdater(BaseUpdater):
 
         try:
             url = f"https://api.github.com/repos/{self.tool.github_repo}"
-            response = requests.get(url, timeout=10)
+            response = requests.get(url, timeout=10, headers=auth_headers())
             if response.ok:
                 return response.json().get('default_branch', 'main')
         except Exception:
@@ -77,7 +78,7 @@ class FileReplacementUpdater(BaseUpdater):
         try:
             branch = self._get_default_branch()
             url = f"https://api.github.com/repos/{self.tool.github_repo}/commits/{branch}"
-            response = requests.get(url, timeout=10)
+            response = requests.get(url, timeout=10, headers=auth_headers())
             if response.ok:
                 return response.json()['sha'][:7]
         except Exception:

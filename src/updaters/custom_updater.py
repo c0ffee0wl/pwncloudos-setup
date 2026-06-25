@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Optional
 from .base import BaseUpdater, UpdateResult
 from ..core.arch import detect_architecture
+from ..core.github import auth_headers
 
 
 class CustomUpdater(BaseUpdater):
@@ -54,7 +55,7 @@ class CustomUpdater(BaseUpdater):
         try:
             import requests
             url = f"https://api.github.com/repos/{self.tool.github_repo}/releases/latest"
-            response = requests.get(url, timeout=10)
+            response = requests.get(url, timeout=10, headers=auth_headers())
             if response.ok:
                 tag = response.json().get('tag_name', '')
                 return tag.lstrip('v') if tag else None

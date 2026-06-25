@@ -72,29 +72,41 @@ class GitPythonUpdater(GitUpdater):
         return git_result
 
     def _install_requirements_global(self) -> None:
-        """Install requirements.txt into the global env (uv if present, else pip)."""
+        """Install requirements.txt into the global env (uv if present, else pip).
+
+        Uses uv's ABSOLUTE path: under sudo the user's ~/.local/bin (where pipx
+        installs uv) is not on secure_path, so a bare `sudo uv` fails. Falls back
+        to pip, and tries pip if the uv command itself fails.
+        """
         from pathlib import Path
 
         req = Path(self.tool.path) / "requirements.txt"
         if not req.exists():
             return
 
-        if shutil.which("uv"):
-            cmd = ["uv", "pip", "install", "--system", "--break-system-packages",
-                   "-r", str(req)]
-        else:
-            cmd = ["python3", "-m", "pip", "install", "-r", str(req),
-                   "--break-system-packages", "--quiet"]
+        need_sudo = os.geteuid() != 0 and str(self.tool.path).startswith("/opt/")
 
-        if os.geteuid() != 0 and str(self.tool.path).startswith("/opt/"):
-            cmd = ["sudo"] + cmd
+        def run(cmd: list) -> tuple:
+            full = (["sudo"] + cmd) if need_sudo else cmd
+            try:
+                result = subprocess.run(full, capture_output=True, text=True, timeout=600)
+                if result.returncode == 0:
+                    return True, ""
+                return False, (result.stderr or result.stdout or "").strip()
+            except Exception as e:
+                return False, str(e)
 
-        try:
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
-            if result.returncode != 0:
-                self.logger.warning(f"requirements install warning: {result.stderr}")
-        except Exception as e:
-            self.logger.warning(f"requirements install error: {e}")
+        last_err = ""
+        uv = shutil.which("uv")
+        if uv:
+            ok, last_err = run([uv, "pip", "install", "--system",
+                                "--break-system-packages", "-r", str(req)])
+            if ok:
+                return
+        ok, last_err = run(["python3", "-m", "pip", "install", "-r", str(req),
+                            "--break-system-packages", "--quiet"])
+        if not ok:
+            self.logger.warning(f"requirements install failed for {self.tool.name}: {last_err[:200]}")
 
     def perform_install(self) -> UpdateResult:
         """Clone if absent (then install deps); otherwise update."""

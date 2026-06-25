@@ -14,6 +14,8 @@ from typing import Optional
 import requests
 from .base import BaseUpdater, UpdateResult
 from ..core.arch import detect_architecture, get_binary_asset_pattern
+from ..core.github import auth_headers
+from ..core.privileges import run_as_root
 
 
 class BinaryUpdater(BaseUpdater):
@@ -45,7 +47,7 @@ class BinaryUpdater(BaseUpdater):
 
         try:
             url = f"https://api.github.com/repos/{self.tool.github_repo}/releases/latest"
-            response = requests.get(url, timeout=10)
+            response = requests.get(url, timeout=10, headers=auth_headers())
 
             if response.ok:
                 data = response.json()
@@ -85,7 +87,7 @@ class BinaryUpdater(BaseUpdater):
         try:
             arch = detect_architecture()
             url = f"https://api.github.com/repos/{self.tool.github_repo}/releases/latest"
-            response = requests.get(url, timeout=10)
+            response = requests.get(url, timeout=10, headers=auth_headers())
 
             if not response.ok:
                 self.logger.debug(f"GitHub release query failed for {self.tool.github_repo}: HTTP {response.status_code}")
@@ -148,6 +150,20 @@ class BinaryUpdater(BaseUpdater):
             self.logger.debug(f"Failed to get download URL: {e}")
         return None
 
+    def _place_binary(self, src: str, dest) -> None:
+        """Copy a downloaded binary to dest; fall back to sudo for root-owned dirs (e.g. /opt)."""
+        dest = Path(dest)
+        try:
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(src, dest)
+            os.chmod(dest, 0o755)
+        except PermissionError:
+            # `install -D` creates parents, copies, and sets mode in one shot, so
+            # mkdir/copy/chmod can't fail silently between separate sudo calls.
+            r = run_as_root(['install', '-D', '-m', '755', str(src), str(dest)], timeout=120)
+            if r.returncode != 0:
+                raise PermissionError(f"sudo install to {dest} failed: {r.stderr.strip()}")
+
     def perform_update(self) -> UpdateResult:
         """Download and install new binary."""
         old_version = self.get_current_version()
@@ -191,18 +207,12 @@ class BinaryUpdater(BaseUpdater):
                 # Raw binary
                 extracted = tmp_path
 
-            # Install
+            # Install (sudo-aware for root-owned dirs like /opt)
             target = self.tool.path
             if target.is_dir():
-                # Install binary into the directory with tool name
-                dest = target / self.tool.name
-                shutil.copy2(extracted, dest)
-                os.chmod(dest, 0o755)
+                self._place_binary(extracted, target / self.tool.name)
             else:
-                target.parent.mkdir(parents=True, exist_ok=True)
-                # Copy to target
-                shutil.copy2(extracted, target)
-                os.chmod(target, 0o755)
+                self._place_binary(extracted, target)
 
             # Cleanup
             os.unlink(tmp_path)

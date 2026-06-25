@@ -6,6 +6,7 @@ import subprocess
 import requests
 from typing import Dict, Optional
 import logging
+from .github import auth_headers
 
 logger = logging.getLogger('pwncloudos-sync')
 
@@ -50,7 +51,8 @@ def check_github_api_rate_limit() -> Optional[Dict]:
     try:
         response = requests.get(
             'https://api.github.com/rate_limit',
-            timeout=10
+            timeout=10,
+            headers=auth_headers()
         )
 
         if response.status_code == 200:
@@ -113,7 +115,8 @@ def get_github_repo_info(repo: str) -> Optional[Dict]:
     try:
         response = requests.get(
             f'https://api.github.com/repos/{repo}',
-            timeout=10
+            timeout=10,
+            headers=auth_headers()
         )
 
         if response.status_code == 200:
