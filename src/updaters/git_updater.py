@@ -316,3 +316,79 @@ class GitUpdater(BaseUpdater):
             return result.returncode == 0
         except Exception:
             return False
+
+    # ------------------------------------------------------------------ #
+    # Clone install (fresh install from GitHub)
+    # ------------------------------------------------------------------ #
+
+    def _needs_sudo_for_parent(self, tool_path: Path) -> bool:
+        """
+        Check if the parent directory of tool_path needs sudo for writing.
+
+        Returns True when the **parent** directory of `tool_path` is not writable
+        by the current user AND the effective UID is not root.
+        """
+        if os.geteuid() == 0:
+            return False
+        parent = tool_path.parent
+        return not os.access(parent, os.W_OK)
+
+    def _git_clone(self) -> UpdateResult:
+        """
+        Clone the repository using shallow clone (--depth 1).
+
+        Uses self.tool.github_repo for the URL and self.tool.path for destination.
+        Prepends sudo if the parent directory is not writable.
+
+        Returns:
+            UpdateResult with success status and version/error message
+        """
+        clone_cmd = ['git', 'clone', '--depth', '1', self.tool.github_repo, str(self.tool.path)]
+        if self._needs_sudo_for_parent(Path(self.tool.path)):
+            clone_cmd = ['sudo'] + clone_cmd
+
+        try:
+            result = subprocess.run(
+                clone_cmd,
+                capture_output=True, text=True, timeout=120
+            )
+
+            if result.returncode == 0:
+                return UpdateResult(
+                    success=True,
+                    tool_name=self.tool.name,
+                    new_version=self.get_current_version(),
+                )
+            else:
+                return UpdateResult(
+                    success=False,
+                    tool_name=self.tool.name,
+                    error_message=result.stderr,
+                )
+        except subprocess.TimeoutExpired as e:
+            return UpdateResult(
+                success=False,
+                tool_name=self.tool.name,
+                error_message=f"Git clone timed out: {str(e)}",
+            )
+        except Exception as e:
+            return UpdateResult(
+                success=False,
+                tool_name=self.tool.name,
+                error_message=str(e),
+            )
+
+    def perform_install(self) -> UpdateResult:
+        """
+        Perform a fresh install of the tool.
+
+        If the .git directory already exists inside self.tool.path,
+        delegates to perform_update(). Otherwise, performs a fresh clone.
+
+        Returns:
+            UpdateResult from either perform_update() or _git_clone()
+        """
+        tool_path = Path(self.tool.path)
+        if (tool_path / '.git').exists():
+            return self.perform_update()
+        return self._git_clone()
