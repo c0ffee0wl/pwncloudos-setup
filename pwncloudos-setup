@@ -1,0 +1,180 @@
+#!/usr/bin/env bash
+# pwncloudos-setup — provision a Kali/Ubuntu/Debian box with PwnCloudOS tooling.
+# Installs system prerequisites + the /opt tool tree, then runs the Python
+# installer (python3 -m src.main install) which clones/installs every manifest
+# tool and places launchers/profiles/menus. Never touches your .zshrc.
+set -eo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# ---- pretty output (reused idioms from linux-setup.sh) ----
+GREEN='\033[0;32m'; YELLOW='\033[0;33m'; RED='\033[0;31m'; CYAN='\033[0;36m'; NC='\033[0m'
+log()  { echo -e "${GREEN}[$(date +'%H:%M:%S')]${NC} $1"; }
+warn() { echo -e "${YELLOW}[WARN]${NC} $1"; }
+error(){ echo -e "${RED}[ERROR]${NC} $1"; exit 1; }
+
+# ---- flags ----
+YES=false; DRY_RUN=false; NO_PREREQS=false; NO_CONFIGS=false; NO_DESKTOP=false
+usage() {
+    cat <<EOF
+Usage: ./pwncloudos-setup [options]
+
+Provision this host with the PwnCloudOS security toolset.
+
+Options:
+  -y, --yes          Skip confirmation prompts
+  -n, --dry-run      Show what would happen; make no changes
+      --no-prereqs   Skip system prerequisite installation
+      --no-configs   Skip launchers/PowerShell profiles/menus (tools only)
+      --no-desktop   Skip desktop menu entries and icons
+  -h, --help         Show this help
+EOF
+}
+while [ $# -gt 0 ]; do
+    case "$1" in
+        -y|--yes) YES=true ;;
+        -n|--dry-run) DRY_RUN=true ;;
+        --no-prereqs) NO_PREREQS=true ;;
+        --no-configs) NO_CONFIGS=true ;;
+        --no-desktop) NO_DESKTOP=true ;;
+        -h|--help) usage; exit 0 ;;
+        *) error "Unknown option: $1 (use --help)" ;;
+    esac
+    shift
+done
+
+# ---- run wrapper: honors --dry-run ----
+run() {
+    if [ "$DRY_RUN" = true ]; then
+        echo -e "${CYAN}[dry-run]${NC} $*"
+    else
+        "$@"
+    fi
+}
+
+# ---- distro detection ----
+is_kali_linux() { grep -qi "kali" /etc/os-release 2>/dev/null; }
+is_ubuntu() {
+    [ -f /etc/os-release ] && . /etc/os-release
+    [ "${ID:-}" = "ubuntu" ] || echo "${ID_LIKE:-}" | grep -qi "ubuntu"
+}
+if ! grep -qiE "(debian|ubuntu|kali|ID_LIKE=.*debian)" /etc/os-release 2>/dev/null; then
+    error "This installer requires a Debian-based distribution (Kali, Ubuntu, or Debian)."
+fi
+ARCH="$(dpkg --print-architecture 2>/dev/null || uname -m)"
+[ "$EUID" -eq 0 ] && warn "Running as root; prefer a normal user with sudo (user files would land under /root)."
+
+log "Detected: $(. /etc/os-release; echo "$PRETTY_NAME") ($ARCH)"
+
+# ---- confirmation ----
+if [ "$YES" != true ] && [ "$DRY_RUN" != true ]; then
+    read -r -p "$(echo -e "${YELLOW}Provision this host with the PwnCloudOS toolset? [y/N]: ${NC}")" ans
+    case "$ans" in y|Y|yes|YES) ;; *) log "Aborted."; exit 0 ;; esac
+fi
+
+# ---- sudo ----
+if [ "$DRY_RUN" != true ]; then
+    log "Requesting sudo credentials..."
+    sudo -v || error "sudo is required to install prerequisites and /opt tools."
+fi
+
+# ---- prerequisites ----
+install_base_packages() {
+    log "Installing base packages (git, python3, pipx, build deps)..."
+    run sudo apt-get update
+    run sudo apt-get install -y \
+        git curl ca-certificates jq \
+        python3 python3-pip python3-venv pipx \
+        build-essential libssl-dev pkg-config
+}
+
+install_uv() {
+    if command -v uv >/dev/null 2>&1; then log "uv already installed"; return 0; fi
+    log "Installing uv (fast Python installer)..."
+    run pipx install uv || warn "uv install failed; will fall back to pip"
+}
+
+install_pwsh() {
+    if command -v pwsh >/dev/null 2>&1; then log "pwsh already installed"; return 0; fi
+    log "Installing PowerShell (needed by ps_tools)..."
+    if is_kali_linux; then
+        run sudo apt-get install -y powershell || warn "powershell apt install failed (Kali)"
+        return 0
+    fi
+    . /etc/os-release
+    local deb="/tmp/packages-microsoft-prod.deb"
+    if run curl -fsSL "https://packages.microsoft.com/config/${ID}/${VERSION_ID}/packages-microsoft-prod.deb" -o "$deb"; then
+        run sudo dpkg -i "$deb" || warn "Microsoft repo package install failed"
+        run sudo apt-get update || true
+        run sudo apt-get install -y powershell || warn "pwsh install failed; ps_tools will be unavailable"
+        run rm -f "$deb"
+    else
+        warn "No Microsoft repo for ${ID} ${VERSION_ID}; skipping pwsh (ps_tools need it)"
+    fi
+}
+
+install_docker() {
+    if command -v docker >/dev/null 2>&1; then log "Docker already installed"; return 0; fi
+    log "Installing Docker CE (needed by bloodhound)..."
+    local distro codename
+    if is_ubuntu; then
+        . /etc/os-release; distro="ubuntu"; codename="${UBUNTU_CODENAME:-$VERSION_CODENAME}"
+        case "$codename" in resolute|questing|noble|jammy) ;; *) distro="debian"; codename="trixie" ;; esac
+    else
+        . /etc/os-release
+        distro="debian"; codename="${VERSION_CODENAME:-trixie}"
+        case "$codename" in trixie|bookworm|bullseye) ;; kali-rolling) codename="trixie" ;; *) codename="trixie" ;; esac
+    fi
+    run sudo install -m 0755 -d /etc/apt/keyrings
+    run sudo curl --proto '=https' --tlsv1.2 -fsSL "https://download.docker.com/linux/$distro/gpg" -o /etc/apt/keyrings/docker.asc \
+        || { warn "Docker GPG fetch failed; skipping Docker (bloodhound unavailable)"; return 0; }
+    run sudo chmod a+r /etc/apt/keyrings/docker.asc
+    if [ "$DRY_RUN" = true ]; then
+        echo -e "${CYAN}[dry-run]${NC} add docker.list for $distro/$codename and apt-get install docker-ce ..."
+    else
+        echo "deb [arch=$ARCH signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/$distro $codename stable" \
+            | sudo tee /etc/apt/sources.list.d/docker.list >/dev/null
+        sudo apt-get update
+        sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin \
+            || warn "Docker install failed; bloodhound will be unavailable"
+        sudo systemctl enable docker 2>/dev/null || true
+        sudo systemctl start docker 2>/dev/null || true
+        sudo usermod -aG docker "$USER" 2>/dev/null || true
+    fi
+}
+
+if [ "$NO_PREREQS" != true ]; then
+    install_base_packages
+    install_uv
+    install_pwsh
+    install_docker
+else
+    log "Skipping prerequisites (--no-prereqs)."
+fi
+
+# ---- /opt tool tree (root-owned; Python clone uses sudo) ----
+log "Creating /opt tool directories..."
+for d in aws_tools azure_tools gcp_tools multi_cloud_tools ps_tools code_scanning cracking-tools; do
+    run sudo mkdir -p "/opt/$d"
+done
+
+# ---- this repo's Python deps (global env, matches upstream) ----
+log "Installing pwncloudos-sync Python dependencies..."
+if command -v uv >/dev/null 2>&1; then
+    run uv pip install --system --break-system-packages -r "$SCRIPT_DIR/requirements.txt" \
+        || run sudo python3 -m pip install -r "$SCRIPT_DIR/requirements.txt" --break-system-packages
+else
+    run python3 -m pip install -r "$SCRIPT_DIR/requirements.txt" --break-system-packages \
+        || run sudo python3 -m pip install -r "$SCRIPT_DIR/requirements.txt" --break-system-packages
+fi
+
+# ---- hand off to the Python installer ----
+PY_ARGS=(install)
+[ "$YES" = true ] && PY_ARGS+=(--yes)
+[ "$DRY_RUN" = true ] && PY_ARGS+=(--dry-run)
+[ "$NO_CONFIGS" = true ] && PY_ARGS+=(--no-configs)
+[ "$NO_DESKTOP" = true ] && PY_ARGS+=(--no-desktop)
+
+log "Running the tool installer: python3 -m src.main ${PY_ARGS[*]}"
+cd "$SCRIPT_DIR"
+exec python3 -m src.main "${PY_ARGS[@]}"
