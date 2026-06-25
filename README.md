@@ -1,4 +1,4 @@
-# pwncloudos-sync
+# pwncloudos-setup
 
 A standalone tool that performs in-place upgrades of all security tools installed on [PwnCloudOS](https://pwnedlabs.io/pwncloudos) without requiring users to download fresh OS images.
 
@@ -19,7 +19,7 @@ A standalone tool that performs in-place upgrades of all security tools installe
 
 ```bash
 # On your PwnCloudOS VM:
-cd /opt/pwncloudos-sync
+cd /opt/pwncloudos-setup
 
 # Install dependencies (first time only)
 pip3 install -r requirements.txt --break-system-packages
@@ -34,11 +34,11 @@ Use `./pwncloudos-setup` (at the repo root) to provision a fresh Kali, Ubuntu, o
 
 ```bash
 # Clone the repo into /opt (needs sudo), then take ownership as your user
-sudo git clone https://github.com/pwnedlabs/pwncloudos-sync /opt/pwncloudos-sync
-sudo chown -R "$USER":"$USER" /opt/pwncloudos-sync
+sudo git clone https://github.com/c0ffee0wl/pwncloudos-setup /opt/pwncloudos-setup
+sudo chown -R "$USER":"$USER" /opt/pwncloudos-setup
 
 # Run the bootstrapper (prompts for sudo as needed)
-cd /opt/pwncloudos-sync
+cd /opt/pwncloudos-setup
 ./pwncloudos-setup
 
 # Skip all confirmation prompts
@@ -226,7 +226,7 @@ skip_tools:
 To replace SprayShark with google-spray:
 
 ```bash
-sudo bash /opt/pwncloudos-sync/scripts/setup_google_spray.sh
+sudo bash /opt/pwncloudos-setup/scripts/setup_google_spray.sh
 ```
 
 ## Contributing
@@ -250,4 +250,4 @@ MIT License — see [LICENSE](LICENSE) for details.
 
 - [PwnCloudOS Download](https://pwnedlabs.io/pwncloudos)
 - [PwnCloudOS Documentation](https://pwncloudos.readthedocs.io/)
-- [GitHub Repository](https://github.com/pwnedlabs/pwncloudos-sync)
+- [GitHub Repository](https://github.com/c0ffee0wl/pwncloudos-setup)
