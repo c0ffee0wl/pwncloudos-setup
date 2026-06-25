@@ -342,11 +342,47 @@ def run_install(tools, config) -> int:
 
     sync_logger.summary(results)
 
+    if config.install_configs:
+        run_configs_phase(config, sync_logger)
+
     success_count = sum(1 for r in results if r.success and not r.skipped)
     failed_count = sum(1 for r in results if not r.success and not r.skipped)
     if failed_count == 0:
         return 0
     return 1 if success_count > 0 else 2
+
+
+def run_configs_phase(config, logger) -> None:
+    """Final install phase: fetch upstream and place launchers/profiles/menus."""
+    import shutil
+    from .installer import configs as cfg
+    from .installer import menu as menu_mod
+    from .cli import Colors
+
+    if config.dry_run:
+        print(f"{Colors.GRAY}Dry run - would fetch launchers/profiles/menus{Colors.END}")
+        return
+
+    print(f"\n{Colors.CYAN}Fetching PwnCloudOS launchers, profiles, and menus...{Colors.END}")
+    repo = cfg.fetch_upstream()
+    if not repo:
+        print(f"{Colors.YELLOW}Could not fetch upstream configs; skipping (tools are installed).{Colors.END}")
+        return
+    try:
+        prof = cfg.install_powershell_profiles(repo)
+        launchers = cfg.install_launchers(repo)
+        print(f"  {Colors.GREEN}✓{Colors.END} PowerShell profiles: {len(prof)}, launchers: {len(launchers)}")
+        if config.install_desktop:
+            icons = menu_mod.install_icons(repo)
+            menu_result = menu_mod.install_menu_entries(repo)
+            if menu_result:
+                print(f"  {Colors.GREEN}✓{Colors.END} Menu entries: {menu_result.get('applications', 0)}, icons: {icons}")
+            else:
+                print(f"  {Colors.GRAY}○{Colors.END} Desktop menus skipped (no desktop environment)")
+    except Exception as e:
+        print(f"  {Colors.YELLOW}⚠{Colors.END} Config/menu placement issue: {e}")
+    finally:
+        shutil.rmtree(repo, ignore_errors=True)
 
 
 def check_updates_only(tools, config, logger):

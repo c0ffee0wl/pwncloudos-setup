@@ -36,6 +36,8 @@ class Config:
     list_only: bool = False
     check_only: bool = False
     install_mode: bool = False
+    install_configs: bool = True
+    install_desktop: bool = True
 
     # Directories
     state_dir: Path = field(default_factory=lambda: Path("state/"))
@@ -132,3 +134,8 @@ def apply_cli_args(config: Config, args):
 
     if hasattr(args, 'command') and args.command == 'install':
         config.install_mode = True
+
+    if hasattr(args, 'no_configs') and args.no_configs:
+        config.install_configs = False
+    if hasattr(args, 'no_desktop') and args.no_desktop:
+        config.install_desktop = False

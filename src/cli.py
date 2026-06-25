@@ -73,6 +73,10 @@ Examples:
                           help='Update tools in parallel (faster)')
     behavior.add_argument('--workers', type=int, default=4,
                           help='Number of parallel workers (default: 4)')
+    behavior.add_argument('--no-configs', action='store_true',
+                          help='Skip fetching launchers/profiles/menus from upstream (install only)')
+    behavior.add_argument('--no-desktop', action='store_true',
+                          help='Skip desktop menu entries and icons (install only)')
 
     # Output
     output = parser.add_argument_group('Output')
