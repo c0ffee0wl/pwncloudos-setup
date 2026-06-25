@@ -3,6 +3,7 @@ Git + Python dependencies updater for pwncloudos-sync.
 """
 
 import os
+import shutil
 import subprocess
 from .git_updater import GitUpdater
 from .base import UpdateResult
@@ -69,6 +70,45 @@ class GitPythonUpdater(GitUpdater):
                 self.logger.warning(f"pip install failed: {e}")
 
         return git_result
+
+    def _install_requirements_global(self) -> None:
+        """Install requirements.txt into the global env (uv if present, else pip)."""
+        from pathlib import Path
+
+        req = Path(self.tool.path) / "requirements.txt"
+        if not req.exists():
+            return
+
+        if shutil.which("uv"):
+            cmd = ["uv", "pip", "install", "--system", "--break-system-packages",
+                   "-r", str(req)]
+        else:
+            cmd = ["python3", "-m", "pip", "install", "-r", str(req),
+                   "--break-system-packages", "--quiet"]
+
+        if os.geteuid() != 0 and str(self.tool.path).startswith("/opt/"):
+            cmd = ["sudo"] + cmd
+
+        try:
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
+            if result.returncode != 0:
+                self.logger.warning(f"requirements install warning: {result.stderr}")
+        except Exception as e:
+            self.logger.warning(f"requirements install error: {e}")
+
+    def perform_install(self) -> UpdateResult:
+        """Clone if absent (then install deps); otherwise update."""
+        from pathlib import Path
+
+        if (Path(self.tool.path) / ".git").exists():
+            return self.perform_update()
+
+        clone_result = self._git_clone()
+        if not clone_result.success:
+            return clone_result
+
+        self._install_requirements_global()
+        return clone_result
 
     def verify_update(self) -> bool:
         """Verify Python tool works."""

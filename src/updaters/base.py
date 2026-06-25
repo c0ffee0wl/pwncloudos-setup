@@ -79,6 +79,29 @@ class BaseUpdater(ABC):
         """
         pass
 
+    def is_installed(self) -> bool:
+        """Best-effort check whether the tool is already present."""
+        import shutil
+        from pathlib import Path
+
+        path = Path(self.tool.path).expanduser()
+        if path.exists():
+            return True
+
+        name = Path(self.tool.path).name or self.tool.name
+        if name and name != 'bin' and shutil.which(name):
+            return True
+        return False
+
+    def perform_install(self) -> UpdateResult:
+        """Install the tool from scratch.
+
+        Default: the update path of several methods (pipx, binary, custom)
+        already installs when missing, so delegate to it. Methods that must
+        bootstrap state first (git clone, apt install) override this.
+        """
+        return self.perform_update()
+
     def verify_update(self) -> bool:
         """
         Verify update succeeded.

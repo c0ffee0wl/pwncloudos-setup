@@ -241,13 +241,15 @@ def get_tools_for_update(tools: List[Tool], config) -> List[Tool]:
     return filtered
 
 
-def get_updater_for_tool(tool: Tool, config):
+def get_updater_for_tool(tool: Tool, config, for_install: bool = False):
     """
     Get the appropriate updater for a tool.
 
     Args:
         tool: Tool object
         config: Configuration object
+        for_install: When True, route git/git_python by install_method regardless of .git presence
+            (for fresh installs). Defaults to False.
 
     Returns:
         Updater instance
@@ -270,15 +272,14 @@ def get_updater_for_tool(tool: Tool, config):
         return DockerUpdater(tool, config)
 
     elif tool.install_method in ('git', 'git_python'):
-        # Check if .git directory exists
+        cls = GitPythonUpdater if tool.install_method == 'git_python' else GitUpdater
+        # For install the repo does not exist yet, so route by method.
+        if for_install:
+            return cls(tool, config)
+        # For update: a real clone uses the git updater; otherwise fall back.
         if (tool.path / '.git').exists():
-            if tool.install_method == 'git_python':
-                return GitPythonUpdater(tool, config)
-            else:
-                return GitUpdater(tool, config)
-        else:
-            # No .git - fall back to file replacement
-            return FileReplacementUpdater(tool, config)
+            return cls(tool, config)
+        return FileReplacementUpdater(tool, config)
 
     elif tool.install_method == 'file_replacement':
         return FileReplacementUpdater(tool, config)

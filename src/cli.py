@@ -27,7 +27,15 @@ Examples:
   pwncloudos-sync --category aws      # Update only AWS tools
   pwncloudos-sync --tool cloudfox     # Update specific tool
   pwncloudos-sync --dry-run           # Show what would be updated
+  pwncloudos-sync install             # Install all tools from scratch
+  pwncloudos-sync install --category aws  # Install only AWS tools
         """
+    )
+
+    parser.add_argument(
+        'command', nargs='?', choices=['install'], default=None,
+        help="Action to run. 'install' provisions tools from scratch "
+             "(default with no command: check + offer updates).",
     )
 
     # Update scope
@@ -65,6 +73,10 @@ Examples:
                           help='Update tools in parallel (faster)')
     behavior.add_argument('--workers', type=int, default=4,
                           help='Number of parallel workers (default: 4)')
+    behavior.add_argument('--no-configs', action='store_true',
+                          help='Skip fetching launchers/profiles/menus from upstream (install only)')
+    behavior.add_argument('--no-desktop', action='store_true',
+                          help='Skip desktop menu entries and icons (install only)')
 
     # Output
     output = parser.add_argument_group('Output')

@@ -68,6 +68,32 @@ class DockerUpdater(BaseUpdater):
         """Docker images should always be checked for updates."""
         return True
 
+    def perform_install(self) -> UpdateResult:
+        """Pull images if a compose file is present; else defer to config fetch."""
+        compose_file = getattr(self.tool, 'docker_compose', None)
+        has_compose = bool(compose_file and Path(compose_file).exists())
+
+        if not has_compose:
+            tool_dir = Path(self.tool.path) if self.tool.path else None
+            if tool_dir and tool_dir.is_dir():
+                for candidate in [
+                    'docker-compose.yml', 'docker-compose.yaml',
+                    'compose.yml', 'compose.yaml',
+                ]:
+                    if (tool_dir / candidate).exists():
+                        has_compose = True
+                        break
+
+        if not has_compose:
+            return UpdateResult(
+                success=True,
+                tool_name=self.tool.name,
+                skipped=True,
+                skip_reason="No docker compose file present yet (provided by config fetch)",
+            )
+
+        return self.perform_update()
+
     def perform_update(self) -> UpdateResult:
         """Execute docker compose pull."""
         # Pre-flight: check Docker daemon

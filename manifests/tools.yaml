@@ -234,7 +234,7 @@ tools:
   - name: cloudfox
     category: multi_cloud
     install_method: binary
-    path: /home/pwnedlabs/go/bin/cloudfox
+    path: ~/go/bin/cloudfox
     github_repo: BishopFox/cloudfox
     version_command: "cloudfox --version"
     arch_support: [amd64, arm64]

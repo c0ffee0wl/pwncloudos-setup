@@ -56,5 +56,11 @@ Thumbs.db
 htmlcov/
 .tox/
 
+# Claude Code / agent scratch
+.claude/
+.superpowers/
+
+# Internal planning docs (specs, plans) — kept out of the repo
+docs/
 # Implementation plan (internal only)
 IMPLEMENTATION_PLAN.md

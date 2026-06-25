@@ -38,6 +38,7 @@ def main() -> int:
     has_action = (
         config.update_all or config.category or config.tools
         or config.list_only or config.check_only or config.dry_run
+        or config.install_mode
     )
     default_mode = not has_action
 
@@ -106,6 +107,10 @@ def main() -> int:
         print(f"\n{Colors.GREEN}All pre-flight checks passed!{Colors.END}")
 
     logger.info(f"Found {len(tools_to_update)} tools to check for updates")
+
+    # Install mode: provision tools from scratch
+    if config.install_mode:
+        return run_install(tools_to_update, config)
 
     # Handle --check: Check for updates without installing
     if config.check_only:
@@ -261,6 +266,122 @@ def update_tool(tool, config, rollback_engine, state_manager, logger, skip_needs
             tool_name=tool.name,
             error_message=str(e)
         )
+
+
+def install_tool(tool, config, logger, arch=None):
+    """Install a single tool from scratch."""
+    from .tools.registry import get_updater_for_tool
+    from .core.arch import detect_architecture
+    from .updaters.base import UpdateResult
+
+    logger.tool_start(tool.name)
+    try:
+        current_arch = arch if arch is not None else detect_architecture()
+        if tool.arch_support and current_arch not in tool.arch_support:
+            reason = f"Unsupported on {current_arch}"
+            logger.tool_skip(tool.name, reason)
+            return UpdateResult(success=True, tool_name=tool.name,
+                                skipped=True, skip_reason=reason)
+
+        updater = get_updater_for_tool(tool, config, for_install=True)
+
+        if not config.force and updater.is_installed():
+            logger.tool_skip(tool.name, "Already installed")
+            return UpdateResult(success=True, tool_name=tool.name,
+                                skipped=True, skip_reason="Already installed")
+
+        if config.dry_run:
+            logger.tool_skip(tool.name, "Dry run - would install")
+            return UpdateResult(success=True, tool_name=tool.name,
+                                skipped=True, skip_reason="Dry run")
+
+        result = updater.perform_install()
+
+        if result.skipped:
+            logger.tool_skip(tool.name, result.skip_reason or "Skipped")
+        elif result.success:
+            # Verification is best-effort on a fresh install; never fail on it.
+            updater.verify_update()
+            logger.tool_success(tool.name, result.old_version or "—",
+                                result.new_version or "installed")
+        else:
+            logger.tool_fail(tool.name, result.error_message)
+        return result
+
+    except Exception as e:
+        logger.tool_fail(tool.name, str(e))
+        return UpdateResult(success=False, tool_name=tool.name, error_message=str(e))
+
+
+def run_install(tools, config) -> int:
+    """Install all selected tools, with one retry pass for failures."""
+    from .logger import SyncLogger
+    from .cli import Colors
+    from .core.arch import detect_architecture
+
+    sync_logger = SyncLogger(config.log_file, config.verbose)
+    arch = detect_architecture()
+
+    print(f"\n{Colors.BOLD}{Colors.CYAN}Installing tools...{Colors.END}\n")
+
+    results = []
+    for i, tool in enumerate(tools, 1):
+        print(f"[{i}/{len(tools)}] ", end='')
+        results.append(install_tool(tool, config, sync_logger, arch))
+
+    failed = [(i, r) for i, r in enumerate(results) if not r.success and not r.skipped]
+    if failed:
+        failed_tools = [tools[i] for i, _ in failed]
+        names = ', '.join(r.tool_name for _, r in failed)
+        print(f"\n{Colors.YELLOW}⟳ Retrying {len(failed)} failed tool(s): {names}{Colors.END}\n")
+        for j, ((idx, _old), tool) in enumerate(zip(failed, failed_tools), 1):
+            print(f"[retry {j}/{len(failed_tools)}] ", end='')
+            results[idx] = install_tool(tool, config, sync_logger, arch)
+
+    sync_logger.summary(results)
+
+    if config.install_configs:
+        run_configs_phase(config, sync_logger)
+
+    success_count = sum(1 for r in results if r.success and not r.skipped)
+    failed_count = sum(1 for r in results if not r.success and not r.skipped)
+    if failed_count == 0:
+        return 0
+    return 1 if success_count > 0 else 2
+
+
+def run_configs_phase(config, logger) -> None:
+    """Final install phase: fetch upstream and place launchers/profiles/menus."""
+    import shutil
+    from .installer import configs as cfg
+    from .installer import menu as menu_mod
+    from .cli import Colors
+
+    if config.dry_run:
+        print(f"{Colors.GRAY}Dry run - would fetch launchers/profiles/menus{Colors.END}")
+        return
+
+    print(f"\n{Colors.CYAN}Fetching PwnCloudOS launchers, profiles, and menus...{Colors.END}")
+    repo = cfg.fetch_upstream()
+    if not repo:
+        print(f"{Colors.YELLOW}Could not fetch upstream configs; skipping (tools are installed).{Colors.END}")
+        return
+    try:
+        home = cfg.target_home()
+        prof = cfg.install_powershell_profiles(repo, home=home)
+        launchers = cfg.install_launchers(repo)
+        print(f"  {Colors.GREEN}✓{Colors.END} PowerShell profiles: {len(prof)}, launchers: {len(launchers)}")
+        if config.install_desktop:
+            icons = menu_mod.install_icons(repo)
+            menu_result = menu_mod.install_menu_entries(repo, home=home)
+            if menu_result:
+                print(f"  {Colors.GREEN}✓{Colors.END} Menu entries: {menu_result.get('applications', 0)}, icons: {icons}")
+            else:
+                print(f"  {Colors.GRAY}○{Colors.END} Desktop menus skipped (no desktop environment)")
+    except Exception as e:
+        print(f"  {Colors.YELLOW}⚠{Colors.END} Config/menu placement issue: {e}")
+    finally:
+        shutil.rmtree(repo, ignore_errors=True)
 
 
 def check_updates_only(tools, config, logger):
