@@ -64,6 +64,44 @@ class AptUpdater(BaseUpdater):
 
         return current != latest
 
+    def perform_install(self) -> UpdateResult:
+        """Install the apt package from scratch (not --only-upgrade)."""
+        if self.get_current_version():
+            return UpdateResult(
+                success=True,
+                tool_name=self.tool.name,
+                new_version=self.get_current_version(),
+                skipped=True,
+                skip_reason="Already installed",
+            )
+
+        try:
+            subprocess.run(
+                ['sudo', 'apt-get', 'update'],
+                capture_output=True, text=True, timeout=120,
+            )
+            result = subprocess.run(
+                ['sudo', 'apt-get', 'install', '-y', self.tool.apt_package],
+                capture_output=True, text=True, timeout=600,
+            )
+            if result.returncode == 0:
+                return UpdateResult(
+                    success=True,
+                    tool_name=self.tool.name,
+                    new_version=self.get_current_version(),
+                )
+            return UpdateResult(
+                success=False,
+                tool_name=self.tool.name,
+                error_message=result.stderr.strip() or "apt-get install failed",
+            )
+        except subprocess.TimeoutExpired:
+            return UpdateResult(
+                success=False,
+                tool_name=self.tool.name,
+                error_message="apt-get install timed out",
+            )
+
     def perform_update(self) -> UpdateResult:
         """Execute apt upgrade."""
         old_version = self.get_current_version()
