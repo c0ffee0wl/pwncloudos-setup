@@ -28,6 +28,82 @@ pip3 install -r requirements.txt --break-system-packages
 python3 -m src.main
 ```
 
+## Install on Kali / Ubuntu / Debian
+
+Use `./pwncloudos-setup` (at the repo root) to provision a fresh Kali, Ubuntu, or Debian host from scratch. It handles all prerequisites, creates the `/opt/<category>` directory tree, installs Python dependencies, and then runs `python3 -m src.main install` to clone and configure every tool in the manifest.
+
+```bash
+# Clone the repo, then run the bootstrapper (prompts for sudo as needed)
+git clone https://github.com/pwnedlabs/pwncloudos-sync /opt/pwncloudos-sync
+cd /opt/pwncloudos-sync
+./pwncloudos-setup
+
+# Skip all confirmation prompts
+./pwncloudos-setup -y
+
+# Preview all actions without making changes
+./pwncloudos-setup --dry-run
+
+# Skip system prerequisite installation (prereqs already present)
+./pwncloudos-setup --no-prereqs
+
+# Skip launcher / PowerShell profile / icon fetch step
+./pwncloudos-setup --no-configs
+
+# Skip XFCE desktop menu entries
+./pwncloudos-setup --no-desktop
+```
+
+### `pwncloudos-setup` flags
+
+| Flag | Description |
+|------|-------------|
+| `-y`, `--yes` | Auto-confirm every prompt |
+| `-n`, `--dry-run` | Show what would happen; make no changes |
+| `--no-prereqs` | Skip apt / pwsh / Docker / uv / John build-dep installation |
+| `--no-configs` | Skip fetching launchers, PowerShell profiles, and icons |
+| `--no-desktop` | Skip XFCE desktop menu entry placement |
+| `-h`, `--help` | Print usage |
+
+**What the bootstrapper installs (prerequisite phase):**
+
+- apt base packages (git, curl, build-essential, etc.)
+- `pwsh` (PowerShell) — via the Kali repo on Kali, or the Microsoft apt repo on Ubuntu/Debian
+- Docker CE
+- `uv` (Python package manager)
+- John the Ripper build dependencies
+
+### Tool-layer install only
+
+If prerequisites are already present and you only want to clone/install the tools themselves:
+
+```bash
+# Install all tools from the manifest
+python3 -m src.main install
+
+# Install tools in a specific category
+python3 -m src.main install --category aws
+
+# Install a single tool
+python3 -m src.main install --tool cloudfox
+
+# Preview install actions without making changes
+python3 -m src.main install --dry-run
+
+# Reinstall tools that are already present
+python3 -m src.main install --force
+
+# Auto-confirm prompts
+python3 -m src.main install -y
+```
+
+### Notes
+
+- `pwsh` and a PowerShell profile are installed, but **`.zshrc` is never modified**.
+- Desktop menu entries are placed only when an XFCE graphical session is detected; they use user-level, vendor-prefixed IDs that are non-destructive to an existing Kali menu.
+- On a real PwnCloudOS VM (where all tools are already present) the installer detects everything in place and is effectively a no-op. Use `pwncloudos-sync` to keep tools updated thereafter.
+- File writes are confined to `/opt`, `/usr/share/pwncloudos`, `~/.config`, and `~/.local/share`.
+
 ## Usage
 
 ```bash
