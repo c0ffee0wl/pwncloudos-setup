@@ -13,6 +13,14 @@ log()  { echo -e "${GREEN}[$(date +'%H:%M:%S')]${NC} $1"; }
 warn() { echo -e "${YELLOW}[WARN]${NC} $1"; }
 error(){ echo -e "${RED}[ERROR]${NC} $1"; exit 1; }
 
+# ---- fail clearly; remind that re-running is safe (all steps are idempotent) ----
+on_err() {
+    local rc=$?
+    echo -e "\n${RED}[ERROR]${NC} pwncloudos-setup aborted (exit $rc). Completed steps are idempotent; re-running is safe."
+    exit "$rc"
+}
+trap on_err ERR
+
 # ---- flags ----
 YES=false; DRY_RUN=false; NO_PREREQS=false; NO_CONFIGS=false; NO_DESKTOP=false
 usage() {
@@ -78,16 +86,30 @@ if [ "$DRY_RUN" != true ]; then
     sudo -v || error "sudo is required to install prerequisites and /opt tools."
 fi
 
+# ---- own this repo dir (safety net) ----
+# If the repo was cloned into a root-owned location (e.g. `sudo git clone` into
+# /opt) and ownership was never handed over, reclaim it so the user can run and
+# update pwncloudos-setup without sudo. (The /opt tool dirs intentionally stay
+# root-owned, matching PwnCloudOS — that is handled separately by the installer.)
+if [ ! -O "$SCRIPT_DIR" ]; then
+    log "Taking ownership of $SCRIPT_DIR for $USER..."
+    run sudo chown -R "$USER":"$USER" "$SCRIPT_DIR"
+fi
+
 # ---- prerequisites ----
 install_base_packages() {
-    log "Installing base packages (git, python3, pipx, build deps)..."
-    run sudo apt-get update
-    run sudo apt-get install -y \
-        git curl ca-certificates jq \
-        python3 python3-pip python3-venv pipx \
-        build-essential libssl-dev pkg-config \
-        golang-go \
-        python3-dev libffi-dev
+    log "Installing base packages..."
+    run sudo apt-get update || warn "apt-get update reported errors; continuing"
+    # Required — without these nothing works, so abort if they can't be installed.
+    run sudo apt-get install -y git curl ca-certificates python3 python3-pip python3-venv pipx \
+        || error "Failed to install required base packages (git/python3/pipx)."
+    # Optional — install one-by-one and only warn on failure, so a single
+    # unavailable/renamed package (or mirror hiccup) can't abort the whole setup.
+    local pkg
+    for pkg in jq build-essential libssl-dev pkg-config golang-go python3-dev libffi-dev; do
+        run sudo apt-get install -y "$pkg" \
+            || warn "Optional package '$pkg' failed to install; related tools may be degraded"
+    done
 }
 
 install_uv() {
@@ -145,6 +167,46 @@ install_docker() {
     fi
 }
 
+ensure_path_entries() {
+    # Make pipx (~/.local/bin) and go-installed (~/go/bin, e.g. cloudfox,
+    # aws-enumerator) tools runnable by name — both for future logins (~/.profile)
+    # and for the rest of this run. Never touches .zshrc.
+    local profile="$HOME/.profile" marker="# pwncloudos-setup PATH"
+    if [ "$DRY_RUN" = true ]; then
+        echo -e "${CYAN}[dry-run]${NC} ensure ~/.local/bin and ~/go/bin on PATH via $profile"
+    elif ! grep -qF "$marker" "$profile" 2>/dev/null; then
+        {
+            echo ""
+            echo "$marker"
+            echo 'case ":$PATH:" in *":$HOME/.local/bin:"*) ;; *) PATH="$HOME/.local/bin:$PATH" ;; esac'
+            echo 'case ":$PATH:" in *":$HOME/go/bin:"*) ;; *) PATH="$HOME/go/bin:$PATH" ;; esac'
+            echo 'export PATH'
+        } >> "$profile"
+        log "Added ~/.local/bin and ~/go/bin to PATH in $profile (re-login or 'source ~/.profile' to apply)"
+    else
+        log "PATH entries already present in $profile"
+    fi
+    # Apply to the current process so the toolchain check and the Python verify
+    # steps (which run tool --version) can find freshly-installed binaries.
+    local d
+    for d in "$HOME/.local/bin" "$HOME/go/bin"; do
+        case ":$PATH:" in *":$d:"*) ;; *) PATH="$d:$PATH" ;; esac
+    done
+    export PATH
+}
+
+report_toolchains() {
+    log "Toolchain availability (missing ones degrade related tool categories):"
+    local t
+    for t in git python3 pipx go pwsh docker; do
+        if command -v "$t" >/dev/null 2>&1; then
+            echo -e "  ${GREEN}[ OK ]${NC} $t"
+        else
+            echo -e "  ${YELLOW}[MISS]${NC} $t"
+        fi
+    done
+}
+
 if [ "$NO_PREREQS" != true ]; then
     install_base_packages
     install_uv
@@ -153,6 +215,9 @@ if [ "$NO_PREREQS" != true ]; then
 else
     log "Skipping prerequisites (--no-prereqs)."
 fi
+
+# ---- ensure user-local bin dirs are on PATH (pipx + go tools) ----
+ensure_path_entries
 
 # ---- /opt tool tree (root-owned; Python clone uses sudo) ----
 log "Creating /opt tool directories..."
@@ -168,6 +233,9 @@ if UV_BIN="$(command -v uv 2>/dev/null)"; then
 else
     run sudo python3 -m pip install -r "$SCRIPT_DIR/requirements.txt" --break-system-packages
 fi
+
+# ---- toolchain report ----
+report_toolchains
 
 # ---- hand off to the Python installer ----
 PY_ARGS=(install)
