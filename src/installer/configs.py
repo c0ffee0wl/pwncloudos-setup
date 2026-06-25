@@ -77,3 +77,71 @@ def _backup_if_exists(dest: Path) -> None:
                        capture_output=True, timeout=30)
     except OSError as e:
         logger.warning(f"Could not back up {dest}: {e}")
+
+
+def install_powershell_profiles(repo_dir, home: Optional[Path] = None) -> List[str]:
+    """Install the user and root PowerShell profiles. Never touches .zshrc."""
+    repo = Path(repo_dir)
+    base = repo / "docs" / "configs" / "shell" / "powershell"
+    home = Path(home) if home else Path.home()
+    written: List[str] = []
+
+    user_src = base / "user" / "Microsoft.PowerShell_profile.ps1"
+    if user_src.exists():
+        content = user_src.read_text(errors="ignore").replace("/home/pwnedlabs", str(home))
+        dest = home / ".config" / "powershell" / "Microsoft.PowerShell_profile.ps1"
+        _backup_if_exists(dest)
+        if _write_file(content.encode(), dest, 0o644):
+            written.append(str(dest))
+
+    root_src = base / "root" / "Microsoft.PowerShell_profile.ps1"
+    if root_src.exists():
+        dest = Path("/root/.config/powershell/Microsoft.PowerShell_profile.ps1")
+        if _sudo_write(root_src.read_bytes(), dest, 0o644):
+            written.append(str(dest))
+
+    return written
+
+
+def _launcher_dest_map(repo_dir) -> Dict[str, str]:
+    """Map launcher basename -> /opt destination, parsed from custom .desktop Exec lines."""
+    dest_map: Dict[str, str] = {}
+    custom = Path(repo_dir) / "docs" / "configs" / "launchers" / "custom"
+    if not custom.is_dir():
+        return dest_map
+    # Direct absolute path form: '/opt/<cat>/<tool>/<name>_launcher.sh'
+    abs_re = re.compile(r"(/opt/\S+?_[Ll]auncher\.sh)")
+    # cd-into form: cd /opt/<dir> && ./<name>_Launcher.sh
+    cd_re = re.compile(r"cd\s+(/opt/\S+?)\s+&&\s+\./(\S+?_[Ll]auncher\.sh)")
+    for desktop in custom.glob("*.desktop"):
+        for line in desktop.read_text(errors="ignore").splitlines():
+            if not line.startswith("Exec="):
+                continue
+            for m in abs_re.finditer(line):
+                p = m.group(1)
+                dest_map[Path(p).name] = p
+            m2 = cd_re.search(line)
+            if m2:
+                fname = m2.group(2)
+                dest_map[fname] = f"{m2.group(1)}/{fname}"
+    return dest_map
+
+
+def install_launchers(repo_dir) -> List[str]:
+    """Place launcher .sh files at the /opt destinations parsed from .desktop files."""
+    dest_map = _launcher_dest_map(repo_dir)
+    launchers_dir = Path(repo_dir) / "docs" / "configs" / "launchers"
+    placed: List[str] = []
+    if not launchers_dir.is_dir():
+        return placed
+    for cat_dir in launchers_dir.iterdir():
+        if not cat_dir.is_dir() or cat_dir.name == "custom":
+            continue
+        for sh in cat_dir.glob("*.sh"):
+            dest = dest_map.get(sh.name)
+            if not dest:
+                logger.debug(f"No .desktop destination for launcher {sh.name}; skipping")
+                continue
+            if _write_file(sh.read_bytes(), Path(dest), 0o755):
+                placed.append(dest)
+    return placed
