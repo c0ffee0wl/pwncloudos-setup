@@ -123,7 +123,7 @@ install_docker() {
     else
         . /etc/os-release
         distro="debian"; codename="${VERSION_CODENAME:-trixie}"
-        case "$codename" in trixie|bookworm|bullseye) ;; kali-rolling) codename="trixie" ;; *) codename="trixie" ;; esac
+        case "$codename" in trixie|bookworm|bullseye) ;; *) codename="trixie" ;; esac
     fi
     run sudo install -m 0755 -d /etc/apt/keyrings
     run sudo curl --proto '=https' --tlsv1.2 -fsSL "https://download.docker.com/linux/$distro/gpg" -o /etc/apt/keyrings/docker.asc \

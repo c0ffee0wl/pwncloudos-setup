@@ -1,6 +1,7 @@
 from pathlib import Path
 
 import src.installer.configs as cfg
+from src.core.safeguards import is_path_allowed
 from conftest import FakeCompleted
 
 
@@ -171,9 +172,9 @@ def test_install_launchers_rejects_cd_traversal(tmp_path, monkeypatch):
                         lambda data, dest, mode=0o644: written_dests.append(str(dest)) or True)
     cfg.install_launchers(repo)
 
-    # Nothing written outside /opt
-    outside = [d for d in written_dests if not cfg._confined(d, "/opt")]
-    assert outside == [], f"Wrote outside /opt: {outside}"
+    # Nothing written outside allowed roots (verified via is_path_allowed)
+    outside = [d for d in written_dests if not is_path_allowed(Path(d))]
+    assert outside == [], f"Wrote outside allowed roots: {outside}"
     # Specifically, evil_launcher.sh must not be placed
     assert not any("evil_launcher" in d for d in written_dests), \
         f"evil_launcher.sh was placed at: {written_dests}"
@@ -197,7 +198,7 @@ def test_install_launchers_rejects_absolute_traversal(tmp_path, monkeypatch):
                         lambda data, dest, mode=0o644: written_dests.append(str(dest)) or True)
     cfg.install_launchers(repo)
 
-    outside = [d for d in written_dests if not cfg._confined(d, "/opt")]
-    assert outside == [], f"Wrote outside /opt: {outside}"
+    outside = [d for d in written_dests if not is_path_allowed(Path(d))]
+    assert outside == [], f"Wrote outside allowed roots: {outside}"
     assert not any("evil_launcher" in d for d in written_dests), \
         f"evil_launcher.sh was placed at: {written_dests}"

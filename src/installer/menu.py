@@ -9,7 +9,8 @@ import tarfile
 from pathlib import Path
 from typing import List, Optional
 
-from .configs import _sudo_write, _confined
+from .configs import _sudo_write
+from ..core.safeguards import is_path_allowed
 
 logger = logging.getLogger('pwncloudos-sync')
 
@@ -36,24 +37,13 @@ def install_icons(repo_dir) -> int:
     count = 0
     for png in src.glob("*.png"):
         dest = ICONS_DEST / png.name
-        if not _confined(dest, "/usr/share/pwncloudos"):
-            logger.warning(f"Refusing icon destination outside /usr/share/pwncloudos: {dest}")
+        if not is_path_allowed(dest):
+            logger.warning(f"Refusing icon destination outside allowed roots: {dest}")
             continue
         if _sudo_write(png.read_bytes(), dest, 0o644):
             count += 1
     return count
 
-
-def _categories(applications: List[Path]) -> List[str]:
-    """Collect distinct menulibre-<cat> categories from the .desktop files."""
-    cats = []
-    for app in applications:
-        for line in app.read_text(errors="ignore").splitlines():
-            if line.startswith("Categories="):
-                for c in line.split("=", 1)[1].split(";"):
-                    if c.startswith("menulibre-") and c not in cats:
-                        cats.append(c)
-    return cats
 
 
 def _render_menu(categories: List[str]) -> str:
@@ -97,14 +87,15 @@ def install_menu_entries(repo_dir, home: Optional[Path] = None) -> dict:
     dirs_dir.mkdir(parents=True, exist_ok=True)
 
     placed_apps: List[Path] = []
+    categories: List[str] = []
     n_dirs = 0
     with tarfile.open(pack, "r:gz") as tar:
         for member in tar.getmembers():
             if not member.isfile():
                 continue
             name = member.name
-            data = tar.extractfile(member).read()
             if name.startswith("applications/") and name.endswith(".desktop"):
+                data = tar.extractfile(member).read()
                 text = "\n".join(
                     ln for ln in data.decode(errors="ignore").splitlines()
                     if not ln.startswith("OnlyShowIn=")
@@ -113,11 +104,16 @@ def install_menu_entries(repo_dir, home: Optional[Path] = None) -> dict:
                 dest = apps_dir / f"{VENDOR_PREFIX}{base}"
                 dest.write_text(text + "\n")
                 placed_apps.append(dest)
+                # Collect menulibre-* categories from in-memory text (avoids re-read from disk)
+                for ln in text.splitlines():
+                    if ln.startswith("Categories="):
+                        for c in ln.split("=", 1)[1].split(";"):
+                            if c.startswith("menulibre-") and c not in categories:
+                                categories.append(c)
             elif name.startswith("desktop-directories/") and name.endswith(".directory"):
+                data = tar.extractfile(member).read()
                 (dirs_dir / Path(name).name).write_bytes(data)
                 n_dirs += 1
-
-    categories = _categories(placed_apps)
     menu_dir = home / ".config/menus/applications-merged"
     menu_dir.mkdir(parents=True, exist_ok=True)
     menu_file = menu_dir / "pwncloudos.menu"

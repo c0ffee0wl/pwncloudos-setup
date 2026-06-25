@@ -3,10 +3,10 @@
 Security note — confinement vs. safeguards.validate_update_target:
   The sync path uses validate_update_target to PROTECT launcher/.desktop paths from
   accidental overwrite by the updater.  The installer path is the opposite: it must
-  CREATE those very paths.  Therefore install_launchers and install_icons use the
-  local _confined() helper to restrict writes to explicit roots (/opt,
-  /usr/share/pwncloudos, and the target user's ~/.config / ~/.local/share) rather
-  than going through validate_update_target, which would refuse every write here.
+  CREATE those very paths.  Therefore install_launchers and install_icons use
+  is_path_allowed() from the project safeguards to restrict writes to the canonical
+  allowed roots rather than going through validate_update_target, which would refuse
+  every write here.
 """
 
 import logging
@@ -18,19 +18,21 @@ import tempfile
 from pathlib import Path
 from typing import Dict, List, Optional
 
+from ..core.safeguards import is_path_allowed
+
 logger = logging.getLogger('pwncloudos-sync')
 
 UPSTREAM_REPO = "https://github.com/pwnedlabs/pwncloudos.git"
 
-
-def _confined(dest, root) -> bool:
-    """True only if dest resolves to a location at or under root (blocks .. traversal)."""
-    try:
-        d = Path(dest).resolve()
-        r = Path(root).resolve()
-        return d == r or r in d.parents
-    except Exception:
-        return False
+# Module-level compiled regexes for _launcher_dest_map (hoisted for efficiency).
+# Rule 1: bare absolute /opt/…/foo.sh anywhere on the line
+_ABS_RE = re.compile(r"(/opt/[^\s\"';]+\.sh)")
+# Rule 2a: --working-directory="…" or --working-directory=…  (with optional space instead of =)
+_WDIR_RE = re.compile(r'--working-directory[= ]"?(/opt/[^\s"\'&]+)"?')
+# Rule 2b: cd /opt/…  (stop at whitespace, quotes, semicolons, ampersands)
+_CD_RE = re.compile(r"cd\s+(/opt/[^\s\"';&#]+)")
+# Rule 2c: relative script  ./foo.sh  (optionally preceded by /usr/bin/zsh or similar)
+_REL_RE = re.compile(r"\./([^\s\"';]+\.sh)")
 
 
 def target_home() -> Path:
@@ -152,37 +154,25 @@ def _launcher_dest_map(repo_dir) -> Dict[str, str]:
     if not custom.is_dir():
         return dest_map
 
-    # Rule 1: bare absolute /opt/…/foo.sh anywhere on the line
-    abs_re = re.compile(r"(/opt/[^\s\"';]+\.sh)")
-
-    # Rule 2a: --working-directory="…" or --working-directory=…  (with optional space instead of =)
-    wdir_re = re.compile(r'--working-directory[= ]"?(/opt/[^\s"\'&]+)"?')
-
-    # Rule 2b: cd /opt/…  (stop at whitespace, quotes, semicolons, ampersands)
-    cd_re = re.compile(r"cd\s+(/opt/[^\s\"';&#]+)")
-
-    # Rule 2c: relative script  ./foo.sh  (optionally preceded by /usr/bin/zsh or similar)
-    rel_re = re.compile(r"\./([^\s\"';]+\.sh)")
-
     for desktop in custom.glob("*.desktop"):
         for line in desktop.read_text(errors="ignore").splitlines():
             if not line.startswith("Exec="):
                 continue
 
             # Rule 1: any absolute /opt/…/.sh takes priority
-            abs_matches = abs_re.findall(line)
+            abs_matches = _ABS_RE.findall(line)
             if abs_matches:
                 for p in abs_matches:
                     dest_map[Path(p).name] = p
                 continue
 
             # Rule 2: working-directory + relative script
-            wdir_m = wdir_re.search(line)
-            cd_m = cd_re.search(line)
+            wdir_m = _WDIR_RE.search(line)
+            cd_m = _CD_RE.search(line)
             working_dir = (wdir_m or cd_m)
             if working_dir:
                 directory = working_dir.group(1).rstrip("/")
-                rel_m = rel_re.search(line)
+                rel_m = _REL_RE.search(line)
                 if rel_m:
                     fname = rel_m.group(1)
                     dest_map[fname] = f"{directory}/{fname}"
@@ -205,8 +195,8 @@ def install_launchers(repo_dir) -> List[str]:
             if not dest:
                 logger.debug(f"No .desktop destination for launcher {sh.name}; skipping")
                 continue
-            if not _confined(dest, "/opt"):
-                logger.warning(f"Refusing launcher destination outside /opt: {dest}")
+            if not is_path_allowed(Path(dest)):
+                logger.warning(f"Refusing launcher destination outside allowed roots: {dest}")
                 continue
             if _write_file(sh.read_bytes(), Path(dest), 0o755):
                 placed.append(dest)

@@ -268,7 +268,7 @@ def update_tool(tool, config, rollback_engine, state_manager, logger, skip_needs
         )
 
 
-def install_tool(tool, config, logger):
+def install_tool(tool, config, logger, arch=None):
     """Install a single tool from scratch."""
     from .tools.registry import get_updater_for_tool
     from .core.arch import detect_architecture
@@ -276,7 +276,7 @@ def install_tool(tool, config, logger):
 
     logger.tool_start(tool.name)
     try:
-        current_arch = detect_architecture()
+        current_arch = arch if arch is not None else detect_architecture()
         if tool.arch_support and current_arch not in tool.arch_support:
             reason = f"Unsupported on {current_arch}"
             logger.tool_skip(tool.name, reason)
@@ -317,28 +317,26 @@ def run_install(tools, config) -> int:
     """Install all selected tools, with one retry pass for failures."""
     from .logger import SyncLogger
     from .cli import Colors
+    from .core.arch import detect_architecture
 
     sync_logger = SyncLogger(config.log_file, config.verbose)
+    arch = detect_architecture()
 
     print(f"\n{Colors.BOLD}{Colors.CYAN}Installing tools...{Colors.END}\n")
 
     results = []
     for i, tool in enumerate(tools, 1):
         print(f"[{i}/{len(tools)}] ", end='')
-        results.append(install_tool(tool, config, sync_logger))
+        results.append(install_tool(tool, config, sync_logger, arch))
 
     failed = [(i, r) for i, r in enumerate(results) if not r.success and not r.skipped]
     if failed:
         failed_tools = [tools[i] for i, _ in failed]
         names = ', '.join(r.tool_name for _, r in failed)
         print(f"\n{Colors.YELLOW}⟳ Retrying {len(failed)} failed tool(s): {names}{Colors.END}\n")
-        for j, tool in enumerate(failed_tools, 1):
+        for j, ((idx, _old), tool) in enumerate(zip(failed, failed_tools), 1):
             print(f"[retry {j}/{len(failed_tools)}] ", end='')
-            retry = install_tool(tool, config, sync_logger)
-            for idx, r in failed:
-                if r.tool_name == tool.name:
-                    results[idx] = retry
-                    break
+            results[idx] = install_tool(tool, config, sync_logger, arch)
 
     sync_logger.summary(results)
 
@@ -369,12 +367,13 @@ def run_configs_phase(config, logger) -> None:
         print(f"{Colors.YELLOW}Could not fetch upstream configs; skipping (tools are installed).{Colors.END}")
         return
     try:
-        prof = cfg.install_powershell_profiles(repo, home=cfg.target_home())
+        home = cfg.target_home()
+        prof = cfg.install_powershell_profiles(repo, home=home)
         launchers = cfg.install_launchers(repo)
         print(f"  {Colors.GREEN}✓{Colors.END} PowerShell profiles: {len(prof)}, launchers: {len(launchers)}")
         if config.install_desktop:
             icons = menu_mod.install_icons(repo)
-            menu_result = menu_mod.install_menu_entries(repo, home=cfg.target_home())
+            menu_result = menu_mod.install_menu_entries(repo, home=home)
             if menu_result:
                 print(f"  {Colors.GREEN}✓{Colors.END} Menu entries: {menu_result.get('applications', 0)}, icons: {icons}")
             else:
