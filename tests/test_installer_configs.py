@@ -148,3 +148,56 @@ def test_install_launchers_places_mapped_only(tmp_path, monkeypatch):
     assert written["/opt/aws_tools/pmapper/pmapper_launcher.sh"] == 0o755
     # unmapped_launcher.sh has no .desktop dest → skipped
     assert not any("unmapped" in p for p in placed)
+
+
+# --- path-traversal confinement tests ---
+
+def test_install_launchers_rejects_cd_traversal(tmp_path, monkeypatch):
+    """A crafted Exec with 'cd /opt/x/../../etc' must not place anything outside /opt."""
+    repo = tmp_path / "repo"
+    custom = repo / "docs/configs/launchers/custom"
+    custom.mkdir(parents=True)
+    # Malicious .desktop: cd traverses out of /opt via ../..
+    (custom / "evil.desktop").write_text(
+        "Exec=xfce4-terminal --command \"bash -c 'cd /opt/x/../../etc && ./evil_launcher.sh; exec bash'\"\n"
+    )
+    # Corresponding launcher source (in a non-custom category dir)
+    cat_dir = repo / "docs/configs/launchers/aws"
+    cat_dir.mkdir(parents=True)
+    (cat_dir / "evil_launcher.sh").write_text("#!/bin/bash\necho evil\n")
+
+    written_dests = []
+    monkeypatch.setattr(cfg, "_write_file",
+                        lambda data, dest, mode=0o644: written_dests.append(str(dest)) or True)
+    cfg.install_launchers(repo)
+
+    # Nothing written outside /opt
+    outside = [d for d in written_dests if not cfg._confined(d, "/opt")]
+    assert outside == [], f"Wrote outside /opt: {outside}"
+    # Specifically, evil_launcher.sh must not be placed
+    assert not any("evil_launcher" in d for d in written_dests), \
+        f"evil_launcher.sh was placed at: {written_dests}"
+
+
+def test_install_launchers_rejects_absolute_traversal(tmp_path, monkeypatch):
+    """An Exec with an absolute path outside /opt must be rejected."""
+    repo = tmp_path / "repo"
+    custom = repo / "docs/configs/launchers/custom"
+    custom.mkdir(parents=True)
+    # Malicious .desktop: absolute path outside /opt
+    (custom / "evil_abs.desktop").write_text(
+        "Exec=xfce4-terminal --command \"/opt/../etc/cron.d/evil_launcher.sh\"\n"
+    )
+    cat_dir = repo / "docs/configs/launchers/aws"
+    cat_dir.mkdir(parents=True)
+    (cat_dir / "evil_launcher.sh").write_text("#!/bin/bash\necho evil\n")
+
+    written_dests = []
+    monkeypatch.setattr(cfg, "_write_file",
+                        lambda data, dest, mode=0o644: written_dests.append(str(dest)) or True)
+    cfg.install_launchers(repo)
+
+    outside = [d for d in written_dests if not cfg._confined(d, "/opt")]
+    assert outside == [], f"Wrote outside /opt: {outside}"
+    assert not any("evil_launcher" in d for d in written_dests), \
+        f"evil_launcher.sh was placed at: {written_dests}"

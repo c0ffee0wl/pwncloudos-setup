@@ -369,12 +369,12 @@ def run_configs_phase(config, logger) -> None:
         print(f"{Colors.YELLOW}Could not fetch upstream configs; skipping (tools are installed).{Colors.END}")
         return
     try:
-        prof = cfg.install_powershell_profiles(repo)
+        prof = cfg.install_powershell_profiles(repo, home=cfg.target_home())
         launchers = cfg.install_launchers(repo)
         print(f"  {Colors.GREEN}✓{Colors.END} PowerShell profiles: {len(prof)}, launchers: {len(launchers)}")
         if config.install_desktop:
             icons = menu_mod.install_icons(repo)
-            menu_result = menu_mod.install_menu_entries(repo)
+            menu_result = menu_mod.install_menu_entries(repo, home=cfg.target_home())
             if menu_result:
                 print(f"  {Colors.GREEN}✓{Colors.END} Menu entries: {menu_result.get('applications', 0)}, icons: {icons}")
             else:

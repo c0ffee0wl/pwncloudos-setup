@@ -1,4 +1,13 @@
-"""Fetch and place PwnCloudOS launcher scripts and PowerShell profiles from upstream."""
+"""Fetch and place PwnCloudOS launcher scripts and PowerShell profiles from upstream.
+
+Security note — confinement vs. safeguards.validate_update_target:
+  The sync path uses validate_update_target to PROTECT launcher/.desktop paths from
+  accidental overwrite by the updater.  The installer path is the opposite: it must
+  CREATE those very paths.  Therefore install_launchers and install_icons use the
+  local _confined() helper to restrict writes to explicit roots (/opt,
+  /usr/share/pwncloudos, and the target user's ~/.config / ~/.local/share) rather
+  than going through validate_update_target, which would refuse every write here.
+"""
 
 import logging
 import os
@@ -12,6 +21,27 @@ from typing import Dict, List, Optional
 logger = logging.getLogger('pwncloudos-sync')
 
 UPSTREAM_REPO = "https://github.com/pwnedlabs/pwncloudos.git"
+
+
+def _confined(dest, root) -> bool:
+    """True only if dest resolves to a location at or under root (blocks .. traversal)."""
+    try:
+        d = Path(dest).resolve()
+        r = Path(root).resolve()
+        return d == r or r in d.parents
+    except Exception:
+        return False
+
+
+def target_home() -> Path:
+    """The home dir to install user-level files into (handles being run under sudo)."""
+    import pwd
+    if os.geteuid() == 0 and os.environ.get("SUDO_USER"):
+        try:
+            return Path(pwd.getpwnam(os.environ["SUDO_USER"]).pw_dir)
+        except KeyError:
+            pass
+    return Path.home()
 
 
 def fetch_upstream(dest_dir=None) -> Optional[Path]:
@@ -34,13 +64,19 @@ def _sudo_write(data: bytes, dest: Path, mode: int) -> bool:
         tmp.write(data)
         tmp_path = tmp.name
     try:
-        subprocess.run(['sudo', 'mkdir', '-p', str(dest.parent)],
-                       capture_output=True, timeout=30)
-        result = subprocess.run(['sudo', 'cp', tmp_path, str(dest)],
-                                capture_output=True, timeout=30)
-        subprocess.run(['sudo', 'chmod', oct(mode)[2:], str(dest)],
-                       capture_output=True, timeout=30)
-        return result.returncode == 0
+        mkdir_result = subprocess.run(['sudo', 'mkdir', '-p', str(dest.parent)],
+                                      capture_output=True, timeout=30)
+        if mkdir_result.returncode != 0:
+            logger.warning(f"sudo mkdir -p {dest.parent} returned {mkdir_result.returncode}")
+        cp_result = subprocess.run(['sudo', 'cp', tmp_path, str(dest)],
+                                   capture_output=True, timeout=30)
+        if cp_result.returncode != 0:
+            return False
+        chmod_result = subprocess.run(['sudo', 'chmod', oct(mode)[2:], str(dest)],
+                                      capture_output=True, timeout=30)
+        if chmod_result.returncode != 0:
+            logger.warning(f"sudo chmod on {dest} returned {chmod_result.returncode}")
+        return True
     except Exception as e:
         logger.error(f"sudo write to {dest} failed: {e}")
         return False
@@ -168,6 +204,9 @@ def install_launchers(repo_dir) -> List[str]:
             dest = dest_map.get(sh.name)
             if not dest:
                 logger.debug(f"No .desktop destination for launcher {sh.name}; skipping")
+                continue
+            if not _confined(dest, "/opt"):
+                logger.warning(f"Refusing launcher destination outside /opt: {dest}")
                 continue
             if _write_file(sh.read_bytes(), Path(dest), 0o755):
                 placed.append(dest)

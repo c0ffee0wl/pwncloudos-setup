@@ -9,7 +9,7 @@ import tarfile
 from pathlib import Path
 from typing import List, Optional
 
-from .configs import _sudo_write
+from .configs import _sudo_write, _confined
 
 logger = logging.getLogger('pwncloudos-sync')
 
@@ -35,7 +35,11 @@ def install_icons(repo_dir) -> int:
         return 0
     count = 0
     for png in src.glob("*.png"):
-        if _sudo_write(png.read_bytes(), ICONS_DEST / png.name, 0o644):
+        dest = ICONS_DEST / png.name
+        if not _confined(dest, "/usr/share/pwncloudos"):
+            logger.warning(f"Refusing icon destination outside /usr/share/pwncloudos: {dest}")
+            continue
+        if _sudo_write(png.read_bytes(), dest, 0o644):
             count += 1
     return count
 
