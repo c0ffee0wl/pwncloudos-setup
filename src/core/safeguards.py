@@ -73,6 +73,15 @@ ALLOWED_UPDATE_PATHS: List[str] = [
     "/usr/local/bin/powerpipe",
     "~/go/bin/*",
     "/home/*/go/bin/*",
+    "~/.local/share/applications/*",
+    "/home/*/.local/share/applications/*",
+    "~/.local/share/desktop-directories/*",
+    "/home/*/.local/share/desktop-directories/*",
+    "~/.config/menus/*",
+    "/home/*/.config/menus/*",
+    "~/.config/powershell/*",
+    "/home/*/.config/powershell/*",
+    "/usr/share/pwncloudos/icons/*",
 ]
 
 
