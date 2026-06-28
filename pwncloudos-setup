@@ -81,7 +81,9 @@ if [ "$YES" != true ] && [ "$DRY_RUN" != true ]; then
 fi
 
 # ---- sudo ----
-if [ "$DRY_RUN" != true ]; then
+# Probe non-interactively first (sudo -n never prompts): skip the password
+# request entirely when sudo is passwordless (NOPASSWD) or already cached.
+if [ "$DRY_RUN" != true ] && ! sudo -n true 2>/dev/null; then
     log "Requesting sudo credentials..."
     sudo -v || error "sudo is required to install prerequisites and /opt tools."
 fi

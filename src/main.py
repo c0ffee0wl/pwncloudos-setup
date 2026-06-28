@@ -18,11 +18,23 @@ from .cli import (
 from .config import Config, load_config
 from .logger import setup_logging, SyncLogger
 from .core.connectivity import check_internet_connectivity, check_github_api_rate_limit
-from .core.privileges import check_sudo_available, request_sudo_upfront
+from .core.privileges import check_sudo_available, request_sudo_upfront, has_passwordless_sudo
 from .core.arch import detect_architecture
 from .core.state import StateManager
 from .core.rollback import RollbackEngine
 from .tools.registry import load_tools_manifest, get_tools_for_update
+
+
+def ensure_sudo_credentials() -> None:
+    """Cache sudo credentials, prompting only when a password is actually needed.
+
+    No-op when sudo is already usable without a password (root, NOPASSWD, or
+    cached credentials), so passwordless hosts see neither a prompt nor noise.
+    """
+    if has_passwordless_sudo():
+        return
+    print(f"\n{Colors.CYAN}Requesting sudo credentials...{Colors.END}")
+    request_sudo_upfront()
 
 
 def main() -> int:
@@ -134,10 +146,9 @@ def main() -> int:
             print(f"\n{Colors.YELLOW}Update cancelled by user.{Colors.END}\n")
             return 0
 
-    # Request sudo upfront to cache credentials
+    # Request sudo upfront to cache credentials (skipped if passwordless)
     if not config.dry_run:
-        print(f"\n{Colors.CYAN}Requesting sudo credentials...{Colors.END}")
-        request_sudo_upfront()
+        ensure_sudo_credentials()
 
     # Initialize rollback engine
     backup_dir = Path.home() / '.cache' / 'pwncloudos-sync' / 'backups'
@@ -467,7 +478,6 @@ def check_and_offer_updates(tools, config, logger) -> int:
     """
     from .tools.registry import get_updater_for_tool
     from .cli import Colors
-    from .core.privileges import request_sudo_upfront
 
     print(f"\n{Colors.CYAN}{'═' * 80}{Colors.END}")
     print(f"{Colors.BOLD}{Colors.WHITE}                    PWNCLOUDOS — VERSION CHECK{Colors.END}")
@@ -581,9 +591,8 @@ def check_and_offer_updates(tools, config, logger) -> int:
         print(f"\n{Colors.YELLOW}Update skipped.{Colors.END}\n")
         return 0
 
-    # Proceed to update only tools that need it
-    print(f"\n{Colors.CYAN}Requesting sudo credentials...{Colors.END}")
-    request_sudo_upfront()
+    # Proceed to update only tools that need it (skip sudo prompt if passwordless)
+    ensure_sudo_credentials()
 
     backup_dir = Path.home() / '.cache' / 'pwncloudos-sync' / 'backups'
     rollback_engine = RollbackEngine(backup_dir)

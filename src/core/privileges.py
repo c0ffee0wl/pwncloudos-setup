@@ -10,6 +10,30 @@ from typing import List, Optional
 logger = logging.getLogger('pwncloudos-sync')
 
 
+def has_passwordless_sudo() -> bool:
+    """
+    Check whether sudo can run without prompting for a password.
+
+    Uses the non-interactive flag (``-n``), so this never prompts: it
+    succeeds when running as root, with NOPASSWD sudoers rules, or when
+    credentials are already cached, and fails fast otherwise.
+
+    Returns:
+        bool: True if sudo runs without a password prompt
+    """
+    if os.geteuid() == 0:
+        return True
+
+    try:
+        return subprocess.run(
+            ['sudo', '-n', 'true'],
+            capture_output=True,
+            timeout=5
+        ).returncode == 0
+    except (subprocess.TimeoutExpired, FileNotFoundError):
+        return False
+
+
 def check_sudo_available() -> bool:
     """
     Check if sudo is available and user has sudo privileges.
@@ -17,23 +41,11 @@ def check_sudo_available() -> bool:
     Returns:
         bool: True if sudo is available
     """
-    # Check if running as root
-    if os.geteuid() == 0:
+    # Already usable without a password (root, NOPASSWD, or cached creds)
+    if has_passwordless_sudo():
         return True
 
-    # Check if sudo is available
-    try:
-        result = subprocess.run(
-            ['sudo', '-n', 'true'],
-            capture_output=True,
-            timeout=5
-        )
-        if result.returncode == 0:
-            return True
-    except (subprocess.TimeoutExpired, FileNotFoundError):
-        pass
-
-    # Check if sudo can be used with password
+    # Otherwise sudo is available only if the user can authenticate
     try:
         result = subprocess.run(
             ['sudo', '-v'],
@@ -49,10 +61,13 @@ def request_sudo_upfront() -> bool:
     """
     Request sudo password upfront to cache credentials.
 
+    Short-circuits without prompting when sudo is already usable without a
+    password (root, NOPASSWD, or cached credentials).
+
     Returns:
         bool: True if sudo credentials are cached
     """
-    if os.geteuid() == 0:
+    if has_passwordless_sudo():
         return True
 
     logger.info("Requesting sudo privileges...")
