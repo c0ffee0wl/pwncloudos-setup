@@ -182,7 +182,7 @@ class PipxUpdater(BaseUpdater):
                 command = ['pipx', 'install', install_target]
             result = subprocess.run(
                 command,
-                capture_output=True, text=True, timeout=600
+                capture_output=True, text=True, timeout=1200
             )
 
             if result.returncode == 0:
@@ -221,7 +221,7 @@ class PipxUpdater(BaseUpdater):
                 success=False,
                 tool_name=self.tool.name,
                 old_version=old_version,
-                error_message="pipx upgrade timed out",
+                error_message=f"pipx {command[1]} timed out after 1200s",
             )
         except Exception as e:
             return UpdateResult(
