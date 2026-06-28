@@ -117,26 +117,42 @@ def _backup_if_exists(dest: Path) -> None:
         logger.warning(f"Could not back up {dest}: {e}")
 
 
-def install_powershell_profiles(repo_dir, home: Optional[Path] = None) -> List[str]:
-    """Install the user and root PowerShell profiles. Never touches .zshrc."""
-    repo = Path(repo_dir)
-    base = repo / "docs" / "configs" / "shell" / "powershell"
+# Bundled PowerShell profile (ported from linux-setup), shipped with this repo so
+# the profile installs without a network fetch. The light-theme block is appended
+# only when a light terminal was detected during setup (see PWNCLOUDOS_TERMINAL_BG).
+_DATA_DIR = Path(__file__).resolve().parent / "data"
+_PWSH_BASE = _DATA_DIR / "profile.ps1"
+_PWSH_LIGHT = _DATA_DIR / "profile.light.ps1"
+
+
+def build_powershell_profile(terminal_bg: str = "dark") -> str:
+    """Assemble the profile text: base block, plus the light theme when light."""
+    content = _PWSH_BASE.read_text()
+    if terminal_bg == "light" and _PWSH_LIGHT.exists():
+        content += "\n" + _PWSH_LIGHT.read_text()
+    return content
+
+
+def install_powershell_profiles(home: Optional[Path] = None,
+                                terminal_bg: str = "dark") -> List[str]:
+    """Install the bundled All-Hosts PowerShell profile for the user and root.
+
+    Writes profile.ps1 (the CurrentUserAllHosts profile). Any existing
+    current-host Microsoft.PowerShell_profile.ps1 (e.g. PwnCloudOS's branded one)
+    is left untouched. Never touches .zshrc.
+    """
     home = Path(home) if home else Path.home()
+    data = build_powershell_profile(terminal_bg).encode()
     written: List[str] = []
 
-    user_src = base / "user" / "Microsoft.PowerShell_profile.ps1"
-    if user_src.exists():
-        content = user_src.read_text(errors="ignore").replace("/home/pwnedlabs", str(home))
-        dest = home / ".config" / "powershell" / "Microsoft.PowerShell_profile.ps1"
-        _backup_if_exists(dest)
-        if _write_file(content.encode(), dest, 0o644):
-            written.append(str(dest))
+    user_dest = home / ".config" / "powershell" / "profile.ps1"
+    _backup_if_exists(user_dest)
+    if _write_file(data, user_dest, 0o644):
+        written.append(str(user_dest))
 
-    root_src = base / "root" / "Microsoft.PowerShell_profile.ps1"
-    if root_src.exists():
-        dest = Path("/root/.config/powershell/Microsoft.PowerShell_profile.ps1")
-        if _sudo_write(root_src.read_bytes(), dest, 0o644):
-            written.append(str(dest))
+    root_dest = Path("/root/.config/powershell/profile.ps1")
+    if _sudo_write(data, root_dest, 0o644):
+        written.append(str(root_dest))
 
     return written
 

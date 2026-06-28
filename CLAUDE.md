@@ -47,15 +47,20 @@ python3 -m src.main --dry-run -vv           # show plan, debug logging, no chang
 `python3 -m src.main install` (Python layer) uses install-aware updater routing:
 `get_updater_for_tool(for_install=True)` selects the correct `BaseUpdater` subclass and calls
 `perform_install()` on each tool. After tools are cloned, the configs/menu phase
-(`src/installer/configs.py`, `src/installer/menu.py`) fetches launchers, PowerShell profiles, icons,
+(`src/installer/configs.py`, `src/installer/menu.py`) installs a **bundled** PowerShell profile
+(`src/installer/data/`, ported from linux-setup — no network fetch), then fetches launchers, icons,
 and XFCE `.desktop` entries from the upstream `pwnedlabs/pwncloudos` repo.
 
 **Install invariants** (distinct from sync invariants):
 
-- `pwsh` + its PowerShell profile are installed. **`.zshrc` is never modified.**
+- `pwsh` + its PowerShell profile are installed. The profile is **bundled** in this repo
+  (`src/installer/data/`); its light/dark theme is chosen from a terminal probe done by the
+  bootstrapper and passed to the Python layer via `PWNCLOUDOS_TERMINAL_BG`. **`.zshrc` is never
+  modified.**
 - XFCE desktop menu entries are created only when a graphical (XFCE) session is detected; they use
   user-level, vendor-prefixed IDs and do not overwrite the existing Kali menu.
-- All file writes are confined to `/opt`, `/usr/share/pwncloudos`, `~/.config`, and `~/.local/share`.
+- All file writes are confined to `/opt`, `/usr/share/pwncloudos`, `~/.config`, `~/.local/share`, and
+  `~/.profile` (the bootstrapper's PATH entries + `POWERSHELL_TELEMETRY_OPTOUT`; never `.zshrc`).
 - On a real PwnCloudOS VM (all tools already present), install is effectively a no-op; `pwncloudos-sync`
   handles updates thereafter.
 

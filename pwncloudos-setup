@@ -167,25 +167,33 @@ install_docker() {
     fi
 }
 
+# Idempotently append a marked block to ~/.profile (skips if the marker is
+# already present; honors --dry-run). Never touches .zshrc. Args:
+#   $1 marker, $2 dry-run msg, $3 added msg, $4 already-present msg, $5.. body lines
+append_profile_block() {
+    local marker="$1" dry_msg="$2" added_msg="$3" present_msg="$4"; shift 4
+    local profile="$HOME/.profile"
+    if [ "$DRY_RUN" = true ]; then
+        echo -e "${CYAN}[dry-run]${NC} $dry_msg"
+    elif grep -qF "$marker" "$profile" 2>/dev/null; then
+        log "$present_msg"
+    else
+        { echo ""; echo "$marker"; printf '%s\n' "$@"; } >> "$profile"
+        log "$added_msg"
+    fi
+}
+
 ensure_path_entries() {
     # Make pipx (~/.local/bin) and go-installed (~/go/bin, e.g. cloudfox,
     # aws-enumerator) tools runnable by name — both for future logins (~/.profile)
     # and for the rest of this run. Never touches .zshrc.
-    local profile="$HOME/.profile" marker="# pwncloudos-setup PATH"
-    if [ "$DRY_RUN" = true ]; then
-        echo -e "${CYAN}[dry-run]${NC} ensure ~/.local/bin and ~/go/bin on PATH via $profile"
-    elif ! grep -qF "$marker" "$profile" 2>/dev/null; then
-        {
-            echo ""
-            echo "$marker"
-            echo 'case ":$PATH:" in *":$HOME/.local/bin:"*) ;; *) PATH="$HOME/.local/bin:$PATH" ;; esac'
-            echo 'case ":$PATH:" in *":$HOME/go/bin:"*) ;; *) PATH="$HOME/go/bin:$PATH" ;; esac'
-            echo 'export PATH'
-        } >> "$profile"
-        log "Added ~/.local/bin and ~/go/bin to PATH in $profile (re-login or 'source ~/.profile' to apply)"
-    else
-        log "PATH entries already present in $profile"
-    fi
+    append_profile_block "# pwncloudos-setup PATH" \
+        "ensure ~/.local/bin and ~/go/bin on PATH via $HOME/.profile" \
+        "Added ~/.local/bin and ~/go/bin to PATH in $HOME/.profile (re-login or 'source ~/.profile' to apply)" \
+        "PATH entries already present in $HOME/.profile" \
+        'case ":$PATH:" in *":$HOME/.local/bin:"*) ;; *) PATH="$HOME/.local/bin:$PATH" ;; esac' \
+        'case ":$PATH:" in *":$HOME/go/bin:"*) ;; *) PATH="$HOME/go/bin:$PATH" ;; esac' \
+        'export PATH'
     # Apply to the current process so the toolchain check and the Python verify
     # steps (which run tool --version) can find freshly-installed binaries.
     local d
@@ -193,6 +201,79 @@ ensure_path_entries() {
         case ":$PATH:" in *":$d:"*) ;; *) PATH="$d:$PATH" ;; esac
     done
     export PATH
+}
+
+# Detect the terminal background and cache it in the global TERMINAL_BG (ported
+# from linux-setup.sh). Primary: OSC 11 query of the live terminal; fallback:
+# $COLORFGBG. The OSC query flips the tty into raw mode, so we do it only once.
+# Sets a global (not echo) so it must be called directly, not via $(...).
+detect_terminal_background() {
+    if [ -n "${TERMINAL_BG:-}" ]; then return 0; fi
+    TERMINAL_BG="unknown"
+
+    local r g b lum reply oldstty bg hr hg hb
+
+    # Primary: ask the terminal for its background color (OSC 11, BEL-terminated).
+    if [ -t 0 ] && [ -t 1 ] && [ -e /dev/tty ]; then
+        oldstty=$(stty -g < /dev/tty 2>/dev/null) || oldstty=""
+        if [ -n "$oldstty" ]; then
+            # Restore the terminal if interrupted mid-query, so a Ctrl-C during
+            # the read can't leave it stuck in raw/no-echo mode.
+            trap 'stty "$oldstty" < /dev/tty 2>/dev/null; trap - INT TERM HUP; exit 130' INT TERM HUP
+            stty raw -echo min 0 time 0 < /dev/tty 2>/dev/null || true
+            printf '\033]11;?\007' > /dev/tty 2>/dev/null || true
+            IFS= read -r -d $'\007' -t 1 reply < /dev/tty 2>/dev/null || true
+            stty "$oldstty" < /dev/tty 2>/dev/null || true
+            trap - INT TERM HUP
+
+            # Reply looks like: ESC]11;rgb:RRRR/GGGG/BBBB
+            if [[ "$reply" =~ rgb:([0-9a-fA-F]+)/([0-9a-fA-F]+)/([0-9a-fA-F]+) ]]; then
+                # Channels may be 1, 2, or 4 hex digits; normalize to 8-bit. A
+                # 1-digit channel repeats (f -> ff = 255); wider forms keep their
+                # top two digits (ffff -> ff, 2828 -> 28).
+                hr=${BASH_REMATCH[1]}; hg=${BASH_REMATCH[2]}; hb=${BASH_REMATCH[3]}
+                [ ${#hr} -eq 1 ] && hr=$hr$hr
+                [ ${#hg} -eq 1 ] && hg=$hg$hg
+                [ ${#hb} -eq 1 ] && hb=$hb$hb
+                r=$((16#${hr:0:2})); g=$((16#${hg:0:2})); b=$((16#${hb:0:2}))
+                lum=$(( (299*r + 587*g + 114*b) / 1000 ))   # BT.601, 0..255
+                if [ "$lum" -lt 128 ]; then TERMINAL_BG="dark"; else TERMINAL_BG="light"; fi
+            fi
+        fi
+    fi
+
+    # Fallback: COLORFGBG = "fg;bg" (or "fg;default;bg"); low bg index => dark.
+    # Require a ';' so a single-field (foreground-only) value isn't read as bg.
+    if [ "$TERMINAL_BG" = "unknown" ] && [ -n "${COLORFGBG:-}" ] && [[ "$COLORFGBG" == *";"* ]]; then
+        bg="${COLORFGBG##*;}"
+        case "$bg" in
+            0|1|2|3|4|5|6|8) TERMINAL_BG="dark" ;;
+            7|9|1[0-5])      TERMINAL_BG="light" ;;
+        esac
+    fi
+
+    return 0
+}
+
+# Decide the PowerShell theme (light only when positively detected; otherwise
+# dark, which PowerShell's colors are optimized for) and opt out of pwsh
+# telemetry. The detected theme is exported to the Python config phase, which
+# writes the matching profile. Never touches .zshrc.
+setup_pwsh_env() {
+    detect_terminal_background
+    if [ "$TERMINAL_BG" = "light" ]; then
+        export PWNCLOUDOS_TERMINAL_BG="light"
+    else
+        export PWNCLOUDOS_TERMINAL_BG="dark"
+    fi
+    log "Terminal background: ${TERMINAL_BG} -> PowerShell ${PWNCLOUDOS_TERMINAL_BG} theme"
+
+    append_profile_block "# pwncloudos-setup pwsh telemetry opt-out" \
+        "export POWERSHELL_TELEMETRY_OPTOUT=1 via $HOME/.profile" \
+        "Opted out of PowerShell telemetry in $HOME/.profile" \
+        "PowerShell telemetry opt-out already present in $HOME/.profile" \
+        'export POWERSHELL_TELEMETRY_OPTOUT=1'
+    export POWERSHELL_TELEMETRY_OPTOUT=1
 }
 
 report_toolchains() {
@@ -218,6 +299,9 @@ fi
 
 # ---- ensure user-local bin dirs are on PATH (pipx + go tools) ----
 ensure_path_entries
+
+# ---- detect terminal theme + opt out of pwsh telemetry (used by the profile install) ----
+setup_pwsh_env
 
 # ---- /opt tool tree (root-owned; Python clone uses sudo) ----
 log "Creating /opt tool directories..."

@@ -351,26 +351,37 @@ def run_install(tools, config) -> int:
 
 
 def run_configs_phase(config, logger) -> None:
-    """Final install phase: fetch upstream and place launchers/profiles/menus."""
+    """Final install phase: install the bundled PowerShell profile, then fetch
+    upstream for launchers/menus."""
+    import os
     import shutil
     from .installer import configs as cfg
     from .installer import menu as menu_mod
     from .cli import Colors
 
     if config.dry_run:
-        print(f"{Colors.GRAY}Dry run - would fetch launchers/profiles/menus{Colors.END}")
+        print(f"{Colors.GRAY}Dry run - would install PowerShell profile and fetch launchers/menus{Colors.END}")
         return
 
-    print(f"\n{Colors.CYAN}Fetching PwnCloudOS launchers, profiles, and menus...{Colors.END}")
+    home = cfg.target_home()
+
+    # The PowerShell profile is bundled with this repo, so install it first and
+    # unconditionally — it must not depend on the upstream clone succeeding.
+    terminal_bg = os.environ.get("PWNCLOUDOS_TERMINAL_BG", "dark")
+    try:
+        prof = cfg.install_powershell_profiles(home=home, terminal_bg=terminal_bg)
+        print(f"  {Colors.GREEN}✓{Colors.END} PowerShell profiles: {len(prof)} ({terminal_bg} theme)")
+    except Exception as e:
+        print(f"  {Colors.YELLOW}⚠{Colors.END} PowerShell profile install issue: {e}")
+
+    print(f"\n{Colors.CYAN}Fetching PwnCloudOS launchers and menus...{Colors.END}")
     repo = cfg.fetch_upstream()
     if not repo:
-        print(f"{Colors.YELLOW}Could not fetch upstream configs; skipping (tools are installed).{Colors.END}")
+        print(f"{Colors.YELLOW}Could not fetch upstream configs; launchers/menus skipped (tools are installed).{Colors.END}")
         return
     try:
-        home = cfg.target_home()
-        prof = cfg.install_powershell_profiles(repo, home=home)
         launchers = cfg.install_launchers(repo)
-        print(f"  {Colors.GREEN}✓{Colors.END} PowerShell profiles: {len(prof)}, launchers: {len(launchers)}")
+        print(f"  {Colors.GREEN}✓{Colors.END} Launchers: {len(launchers)}")
         if config.install_desktop:
             icons = menu_mod.install_icons(repo)
             menu_result = menu_mod.install_menu_entries(repo, home=home)
